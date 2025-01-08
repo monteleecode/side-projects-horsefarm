@@ -1,0 +1,18 @@
+<h1 class="mt-4">Dashboard</h1>
+<p class="lead mb-3">Welcome <%= user.name %></p>
+<p>Current Active Sessions</p>
+<ul>
+<% Object.entries(sessions).forEach(([key, value]) => { %>
+<li>
+      User ID: <%= value.passport.user.id %>, 
+      <br>Session: <%= key %>
+      <br><form action="/auth/revoke/" method="POST">
+            <input type="hidden" value="<%= key %>" name='sessionId'>
+            <button type="submit" class="btn btn-primary btn-block">Revoke Session</button>
+          </form>
+</li>
+<% }); %>
+
+
+</ul>
+
