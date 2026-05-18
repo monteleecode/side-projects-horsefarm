@@ -1,2 +1,15 @@
+.DS_Store
+Thumbs.db
+
+.env
+.env.*
+*.log
+
+.scratch/
+
 node_modules/
-models/db.js
+.next/
+out/
+.turbo/
+
+target/
