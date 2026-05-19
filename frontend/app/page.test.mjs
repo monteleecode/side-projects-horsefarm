@@ -11,4 +11,7 @@ test("home page source defines the staff MVP shell", async () => {
     source,
     /Internal scheduling, horse assignment, practice ride, and lesson credit/
   );
+  assert.match(source, /Sign in with Google/);
+  assert.match(source, /\/api\/auth\/google\/start/);
+  assert.match(source, /farmadmin/);
 });
