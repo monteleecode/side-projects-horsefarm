@@ -12,6 +12,12 @@ async fn health_endpoint_reports_backend_is_ready() {
   let app = build_router(AppConfig {
     database_url: "postgres://horsefarm:horsefarm@localhost:5432/horsefarm".to_string(),
     public_base_url: "http://localhost:3000".to_string(),
+    google_client_id: "test-client-id".to_string(),
+    google_client_secret: "test-client-secret".to_string(),
+    google_redirect_uri: "http://localhost:3000/api/auth/google/callback".to_string(),
+    session_cookie_name: "horse_farm_session".to_string(),
+    session_cookie_secure: false,
+    session_ttl_seconds: 3600,
   });
 
   let response = app
