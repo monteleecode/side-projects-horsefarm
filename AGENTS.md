@@ -27,3 +27,21 @@ Use short, imperative commit messages. PRs should explain what changed, why the 
 ## Security & Configuration Tips
 
 Keep secrets in `.env` files and out of source control. Do not commit local build output such as `frontend/.next/`, `frontend/node_modules/`, or `backend/target/`. The deployment baseline intentionally excludes MinIO until file uploads are implemented.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in `monteleecode/side-projects-horsefarm`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default label names for `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo: one root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
+### GitHub ship flow
+
+Use the `github:yeet` skill to publish a branch, open the PR, merge it, delete the branch, and close the linked issue.

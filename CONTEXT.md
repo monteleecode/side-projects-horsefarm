@@ -184,3 +184,94 @@ _Avoid_: Shift, time off, availability block
 - "Booking" can mean a lesson request, a confirmed lesson, or a horse assignment; use **Lesson**, **Lesson Participant**, or **Horse Assignment** explicitly.
 - "Cancellation" and **No-Show** are different outcomes; a **No-Show** may still deduct from the **Lesson Balance**.
 - "Review" does not imply approval; use **Operational Review** only for already-effective changes that may need admin attention.
+
+## Staff UI
+
+  The staff-facing UI uses a fixed left sidebar and a right-side working area.
+
+  **Sidebar**:
+  A fixed navigation panel that groups the app by domain subject.
+  _Avoid_: Top navigation when the screen is intended for dense operational work.
+
+  **Subject**:
+  A top-level sidebar group such as **Schedule**, **Students**, **Horses**, **Lessons**, **Review**, or
+  **Admin**.
+  _Avoid_: Task-first labels when the work is primarily record-oriented.
+
+  **Subitem**:
+  A nested item revealed under an expanded subject in the sidebar.
+  _Avoid_: Deep menu nesting beyond one level.
+
+  **Attention Count**:
+  A compact sidebar count showing how many records in a subject need staff attention.
+  _Avoid_: A raw total when the operational question is what needs work now.
+
+  **Search and Filter Row**:
+  The sticky control row above a list that contains immediate search and chips for the current subject.
+  _Avoid_: Hiding common filters in a drawer for primary workflows.
+
+  **List Row**:
+  A selectable record row that shows the name plus compact metadata and state.
+  _Avoid_: Overly tall preview cards that repeat the full record before selection.
+
+  **Summary Strip**:
+  The top header for a selected record. It shows the record type, name, key state, and the most common actions.
+  _Avoid_: Turning the header into a full toolbar.
+
+  **Compact Sticky Header**:
+  The condensed form of the summary strip that stays visible while scrolling the record. It keeps the avatar,
+  name, and the single most important status signal.
+  _Avoid_: Repeating the full badge set in the compact state.
+
+  **Detail Stack**:
+  The vertical set of cards below the summary strip that shows the selected record's sections in a fixed order.
+  _Avoid_: Splitting the record into multiple competing columns.
+
+  **Section Card**:
+  A self-contained card for one record section such as **Status**, **Contacts**, **Guardians**, **Riding
+  level**, **Notes**, or **Audit trail**.
+  _Avoid_: Plain dividers when the page needs clearer hierarchy.
+
+  **Inline Section Edit**:
+  A section-level edit mode that replaces the section's view state in place and uses explicit **Save** and
+  **Cancel** actions.
+  _Avoid_: Switching the whole record into edit mode at once.
+
+  **Empty State**:
+  A section state that explains the absence of data and offers a clear primary action.
+  _Avoid_: Hiding empty sections entirely.
+
+  **Record Anchor**:
+  An in-page jump target for a section inside the selected record.
+  _Avoid_: Putting every section in the URL.
+
+  **Load More**:
+  A visible control at the bottom of a list that fetches additional rows.
+  _Avoid_: Endless automatic loading when staff need a clear breakpoint.
+
+  **Calendar View**:
+  The default scheduling view. It opens to today, uses 30-minute slots, and is the first schedule mode staff
+  see.
+  _Avoid_: Opening the schedule on a list by default.
+
+  **Week View**:
+  The secondary schedule view that shows the current calendar week starting on Monday.
+  _Avoid_: A rolling seven-day window.
+
+  ### Staff UI relationships
+
+  - The left sidebar stays fixed while the right-side content scrolls independently.
+  - Only one top-level sidebar subject is open at a time.
+  - Selecting another subject collapses the previous one automatically.
+  - The sidebar resets to **Schedule** on reload for every role.
+  - Unauthorized sidebar items are hidden completely.
+  - The right side keeps one selected record visible at a time.
+  - The list appears before the detail stack on the same page.
+  - The record URL updates to a path such as `/students/mia-grant`.
+  - The record page keeps a single URL for the record itself while allowing in-page section jumps.
+  - The sticky summary strip is compact while scrolling and shows only the most important status signal plus the
+  most common actions.
+  - The list search and filter row stays sticky above the list.
+  - Search matches names plus key metadata and updates immediately as the user types.
+  - Filter chips are single-select, show counts, and stay compact.
+  - The schedule view defaults to calendar, with a day-first workflow and a switch to week view.
