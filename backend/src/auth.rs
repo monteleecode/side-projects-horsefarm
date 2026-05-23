@@ -5,6 +5,7 @@ use axum::{
   routing::{get, post},
   Json, Router,
 };
+use crate::students::StudentStore;
 use postgres::{Client, NoTls};
 use reqwest::blocking::Client as HttpClient;
 use reqwest::Url;
@@ -21,6 +22,7 @@ use std::{
 use tracing::{info, warn};
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
+static STAFF_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 const GOOGLE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
@@ -143,11 +145,12 @@ pub struct StaffUser {
 }
 
 #[derive(Clone, Debug)]
-struct AppState {
-  config: AppConfig,
-  staff_directory: StaffDirectory,
-  sessions: Arc<dyn SessionStore>,
-  google_auth: Arc<dyn GoogleAuthProvider>,
+pub(crate) struct AppState {
+  pub(crate) config: AppConfig,
+  pub(crate) staff_directory: StaffDirectory,
+  pub(crate) students: Arc<StudentStore>,
+  pub(crate) sessions: Arc<dyn SessionStore>,
+  pub(crate) google_auth: Arc<dyn GoogleAuthProvider>,
 }
 
 impl AppState {
@@ -158,6 +161,7 @@ impl AppState {
   ) -> Self {
     Self {
       staff_directory: StaffDirectory::new(),
+      students: Arc::new(StudentStore::seeded()),
       sessions,
       google_auth,
       config,
@@ -166,7 +170,7 @@ impl AppState {
 }
 
 #[derive(Clone, Default, Debug)]
-struct StaffDirectory {
+pub(crate) struct StaffDirectory {
   by_id: Arc<RwLock<HashMap<String, StaffUser>>>,
   by_email: Arc<RwLock<HashMap<String, String>>>,
 }
@@ -188,6 +192,13 @@ impl StaffDirectory {
         role: StaffRole::Instructor,
         active: true,
       },
+      StaffUser {
+        id: "staff-lee-wells".to_string(),
+        email: "lee.wells@gmail.com".to_string(),
+        display_name: "Lee Wells".to_string(),
+        role: StaffRole::Instructor,
+        active: true,
+      },
     ];
     let mut by_id = HashMap::new();
     let mut by_email = HashMap::new();
@@ -203,7 +214,48 @@ impl StaffDirectory {
     }
   }
 
-  fn get_active_by_email(&self, email: &str) -> Option<StaffUser> {
+  pub(crate) fn create(
+    &self,
+    email: String,
+    display_name: String,
+    role: StaffRole,
+    active: bool,
+  ) -> Result<StaffUser, StaffDirectoryError> {
+    let mut by_id = self
+      .by_id
+      .write()
+      .map_err(|_| StaffDirectoryError::Poisoned)?;
+    let mut by_email = self
+      .by_email
+      .write()
+      .map_err(|_| StaffDirectoryError::Poisoned)?;
+
+    if by_email.contains_key(&email) {
+      return Err(StaffDirectoryError::DuplicateEmail);
+    }
+
+    let user = StaffUser {
+      id: generate_staff_id(),
+      email: email.clone(),
+      display_name,
+      role,
+      active,
+    };
+
+    by_email.insert(email, user.id.clone());
+    by_id.insert(user.id.clone(), user.clone());
+
+    Ok(user)
+  }
+
+  pub(crate) fn activate(&self, id: &str) -> Option<StaffUser> {
+    let mut by_id = self.by_id.write().ok()?;
+    let user = by_id.get_mut(id)?;
+    user.active = true;
+    Some(user.clone())
+  }
+
+  pub(crate) fn get_active_by_email(&self, email: &str) -> Option<StaffUser> {
     let user_id = self.by_email.read().ok()?.get(email)?.clone();
     let user = self.by_id.read().ok()?.get(&user_id)?.clone();
 
@@ -214,11 +266,11 @@ impl StaffDirectory {
     }
   }
 
-  fn get_by_id(&self, id: &str) -> Option<StaffUser> {
+  pub(crate) fn get_by_id(&self, id: &str) -> Option<StaffUser> {
     self.by_id.read().ok()?.get(id).cloned()
   }
 
-  fn deactivate(&self, id: &str) -> Option<StaffUser> {
+  pub(crate) fn deactivate(&self, id: &str) -> Option<StaffUser> {
     let mut by_id = self.by_id.write().ok()?;
     let user = by_id.get_mut(id)?;
     user.active = false;
@@ -226,14 +278,31 @@ impl StaffDirectory {
   }
 }
 
+#[derive(Debug)]
+pub(crate) enum StaffDirectoryError {
+  DuplicateEmail,
+  Poisoned,
+}
+
+impl std::fmt::Display for StaffDirectoryError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      StaffDirectoryError::DuplicateEmail => write!(f, "duplicate staff email"),
+      StaffDirectoryError::Poisoned => write!(f, "staff directory lock poisoned"),
+    }
+  }
+}
+
+impl std::error::Error for StaffDirectoryError {}
+
 #[derive(Clone, Debug)]
-struct SessionRecord {
+pub(crate) struct SessionRecord {
   user_id: String,
   expires_at: i64,
 }
 
 #[derive(Debug)]
-enum SessionStoreError {
+pub(crate) enum SessionStoreError {
   Postgres(postgres::Error),
   Poisoned,
 }
@@ -255,7 +324,7 @@ impl From<postgres::Error> for SessionStoreError {
   }
 }
 
-trait SessionStore: Send + Sync + std::fmt::Debug {
+pub(crate) trait SessionStore: Send + Sync + std::fmt::Debug {
   fn create_session(&self, user_id: &str, ttl_seconds: u64) -> Result<String, SessionStoreError>;
   fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>, SessionStoreError>;
   fn revoke_session(&self, session_id: &str) -> Result<(), SessionStoreError>;
@@ -391,13 +460,13 @@ impl SessionStore for PostgresSessionStore {
 }
 
 #[derive(Debug, Clone)]
-struct GoogleProfile {
+pub(crate) struct GoogleProfile {
   email: String,
   display_name: String,
 }
 
 #[derive(Debug)]
-enum GoogleAuthError {
+pub(crate) enum GoogleAuthError {
   Http(reqwest::Error),
   InvalidResponse(String),
 }
@@ -419,7 +488,7 @@ impl From<reqwest::Error> for GoogleAuthError {
   }
 }
 
-trait GoogleAuthProvider: Send + Sync + std::fmt::Debug {
+pub(crate) trait GoogleAuthProvider: Send + Sync + std::fmt::Debug {
   fn authorization_url(&self, state: &str) -> String;
   fn exchange_code(&self, code: &str) -> Result<GoogleProfile, GoogleAuthError>;
 }
@@ -531,6 +600,14 @@ impl GoogleAuthProvider for MockGoogleAuthProvider {
         email: "mkt.monte@gmail.com".to_string(),
         display_name: "Mkt Monte".to_string(),
       }),
+      "google-code-lee" => Ok(GoogleProfile {
+        email: "lee.wells@gmail.com".to_string(),
+        display_name: "Lee Wells".to_string(),
+      }),
+      "google-code-temp" => Ok(GoogleProfile {
+        email: "temp.staff@example.com".to_string(),
+        display_name: "Temp Staff".to_string(),
+      }),
       "google-code-unknown" => Ok(GoogleProfile {
         email: "outsider@example.com".to_string(),
         display_name: "Outsider".to_string(),
@@ -551,6 +628,15 @@ struct HealthResponse {
 #[derive(Serialize)]
 struct ErrorResponse {
   error: &'static str,
+}
+
+#[derive(Serialize)]
+struct StaffUserResponse {
+  id: String,
+  email: String,
+  display_name: String,
+  role: StaffRole,
+  active: bool,
 }
 
 #[derive(Serialize)]
@@ -579,6 +665,14 @@ struct EmergencyLoginRequest {
   password: String,
 }
 
+#[derive(Deserialize)]
+struct CreateStaffUserRequest {
+  email: String,
+  display_name: String,
+  role: StaffRole,
+  active: Option<bool>,
+}
+
 fn build_session_user(user: &StaffUser) -> SessionUserResponse {
   SessionUserResponse {
     id: user.id.clone(),
@@ -586,6 +680,38 @@ fn build_session_user(user: &StaffUser) -> SessionUserResponse {
     display_name: user.display_name.clone(),
     role: user.role.clone(),
   }
+}
+
+fn build_staff_user_response(user: &StaffUser) -> StaffUserResponse {
+  StaffUserResponse {
+    id: user.id.clone(),
+    email: user.email.clone(),
+    display_name: user.display_name.clone(),
+    role: user.role.clone(),
+    active: user.active,
+  }
+}
+
+async fn require_admin(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+) -> Result<StaffUser, Response> {
+  let current = match current_user(state, headers).await {
+    Ok(user) => user,
+    Err(response) => return Err(response),
+  };
+
+  if current.role != StaffRole::Admin {
+    return Err((
+      StatusCode::FORBIDDEN,
+      Json(ErrorResponse {
+        error: "admin_only",
+      }),
+    )
+      .into_response());
+  }
+
+  Ok(current)
 }
 
 pub fn build_router(config: AppConfig) -> Router {
@@ -624,8 +750,11 @@ fn api_router() -> Router {
     .route("/auth/google/start", get(google_start))
     .route("/auth/google/callback", get(google_callback))
     .route("/auth/emergency", post(emergency_login))
+    .route("/staff", post(create_staff_user))
+    .route("/staff/:user_id/activate", post(activate_staff_user))
     .route("/logout", post(logout))
     .route("/staff/:user_id/deactivate", post(deactivate_staff_user))
+    .merge(crate::students::student_router())
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -760,20 +889,10 @@ async fn deactivate_staff_user(
   Path(user_id): Path<String>,
   headers: HeaderMap,
 ) -> Response {
-  let current = match current_user(&state, &headers).await {
+  let current = match require_admin(&state, &headers).await {
     Ok(user) => user,
     Err(response) => return response,
   };
-
-  if current.role != StaffRole::Admin {
-    return (
-      StatusCode::FORBIDDEN,
-      Json(ErrorResponse {
-        error: "admin_only",
-      }),
-    )
-      .into_response();
-  }
 
   match state.staff_directory.deactivate(&user_id) {
     Some(deactivated) => {
@@ -783,7 +902,80 @@ async fn deactivate_staff_user(
         target = %deactivated.id,
         "deactivated staff user and revoked sessions"
       );
-      Json(build_session_user(&deactivated)).into_response()
+      Json(build_staff_user_response(&deactivated)).into_response()
+    }
+    None => (
+      StatusCode::NOT_FOUND,
+      Json(ErrorResponse {
+        error: "staff_user_not_found",
+      }),
+    )
+      .into_response(),
+  }
+}
+
+async fn create_staff_user(
+  Extension(state): Extension<Arc<AppState>>,
+  headers: HeaderMap,
+  Json(payload): Json<CreateStaffUserRequest>,
+) -> Response {
+  let current = match require_admin(&state, &headers).await {
+    Ok(user) => user,
+    Err(response) => return response,
+  };
+
+  let active = payload.active.unwrap_or(true);
+  let role = payload.role;
+
+  match state
+    .staff_directory
+    .create(payload.email, payload.display_name, role, active)
+  {
+    Ok(user) => {
+      info!(
+        actor = %current.id,
+        target = %user.id,
+        role = ?user.role,
+        active = user.active,
+        "created staff user"
+      );
+      Json(build_staff_user_response(&user)).into_response()
+    }
+    Err(StaffDirectoryError::DuplicateEmail) => (
+      StatusCode::CONFLICT,
+      Json(ErrorResponse {
+        error: "staff_email_exists",
+      }),
+    )
+      .into_response(),
+    Err(StaffDirectoryError::Poisoned) => (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(ErrorResponse {
+        error: "staff_directory_error",
+      }),
+    )
+      .into_response(),
+  }
+}
+
+async fn activate_staff_user(
+  Extension(state): Extension<Arc<AppState>>,
+  Path(user_id): Path<String>,
+  headers: HeaderMap,
+) -> Response {
+  let current = match require_admin(&state, &headers).await {
+    Ok(user) => user,
+    Err(response) => return response,
+  };
+
+  match state.staff_directory.activate(&user_id) {
+    Some(activated) => {
+      info!(
+        actor = %current.id,
+        target = %activated.id,
+        "activated staff user"
+      );
+      Json(build_staff_user_response(&activated)).into_response()
     }
     None => (
       StatusCode::NOT_FOUND,
@@ -853,7 +1045,10 @@ fn auth_failure_redirect(state: &AppState, reason: &'static str) -> Response {
   response
 }
 
-async fn current_user(state: &Arc<AppState>, headers: &HeaderMap) -> Result<StaffUser, Response> {
+pub(crate) async fn current_user(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+) -> Result<StaffUser, Response> {
   let session_id = session_id_from_headers(&state.config.session_cookie_name, headers)
     .ok_or_else(|| unauthorized("missing_session"))?;
 
@@ -973,6 +1168,15 @@ fn generate_session_id() -> String {
     .unwrap_or_else(|_| Duration::from_secs(0))
     .as_nanos();
   format!("{nanos:x}{counter:x}")
+}
+
+fn generate_staff_id() -> String {
+  let counter = STAFF_COUNTER.fetch_add(1, Ordering::Relaxed);
+  let nanos = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_else(|_| Duration::from_secs(0))
+    .as_nanos();
+  format!("staff-{nanos:x}{counter:x}")
 }
 
 fn now_epoch_seconds() -> i64 {
