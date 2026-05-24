@@ -299,3 +299,212 @@ async fn deactivating_a_user_revokes_active_sessions() {
 
   assert_eq!(me_after_deactivation.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn admin_can_create_activate_and_manage_staff_users() {
+  let app = build_router(test_config());
+
+  let admin_login = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("POST")
+        .uri("/api/auth/emergency")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+          json!({
+            "username": "farmadmin",
+            "password": "farmadmin"
+          })
+          .to_string(),
+        ))
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  let admin_cookie = cookie_value(&header_value(&admin_login, header::SET_COOKIE));
+
+  let create = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("POST")
+        .uri("/api/staff")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, &admin_cookie)
+        .body(Body::from(
+          json!({
+            "email": "temp.staff@example.com",
+            "display_name": "Temp Staff",
+            "role": "instructor",
+            "active": false
+          })
+          .to_string(),
+        ))
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert_eq!(create.status(), StatusCode::OK);
+  let created = read_json(create).await;
+  let created_id = created["id"].as_str().unwrap().to_string();
+  assert_eq!(created["email"], "temp.staff@example.com");
+  assert_eq!(created["display_name"], "Temp Staff");
+  assert_eq!(created["role"], "instructor");
+  assert_eq!(created["active"], false);
+
+  let login_before_activation = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri("/api/auth/google/start")
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  let oauth_state = cookie_value(&header_value(&login_before_activation, header::SET_COOKIE));
+
+  let denied_login = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri(format!(
+          "/api/auth/google/callback?code=google-code-temp&state={}",
+          oauth_state.split('=').nth(1).unwrap_or("")
+        ))
+        .header(header::COOKIE, oauth_state.clone())
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert!(header_value(&denied_login, header::LOCATION).contains("unknown_google_account"));
+
+  let activate = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("POST")
+        .uri(format!("/api/staff/{created_id}/activate"))
+        .header(header::COOKIE, &admin_cookie)
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert_eq!(activate.status(), StatusCode::OK);
+  let activated = read_json(activate).await;
+  assert_eq!(activated["id"], created_id);
+  assert_eq!(activated["active"], true);
+
+  let activate_login_start = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri("/api/auth/google/start")
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  let activate_state = cookie_value(&header_value(&activate_login_start, header::SET_COOKIE));
+
+  let login_after_activation = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri(format!(
+          "/api/auth/google/callback?code=google-code-temp&state={}",
+          activate_state.split('=').nth(1).unwrap_or("")
+        ))
+        .header(header::COOKIE, activate_state)
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert_eq!(login_after_activation.status(), StatusCode::SEE_OTHER);
+  assert_eq!(
+    header_value(&login_after_activation, header::LOCATION),
+    "http://localhost:3000"
+  );
+}
+
+#[tokio::test]
+async fn instructors_cannot_manage_staff_users() {
+  let app = build_router(test_config());
+
+  let staff_login = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri("/api/auth/google/start")
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  let oauth_state = cookie_value(&header_value(&staff_login, header::SET_COOKIE));
+  let callback = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .uri(format!(
+          "/api/auth/google/callback?code=google-code-mkt&state={}",
+          oauth_state.split('=').nth(1).unwrap_or("")
+        ))
+        .header(header::COOKIE, oauth_state)
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  let instructor_cookie = cookie_value(&header_value(&callback, header::SET_COOKIE));
+
+  let create = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("POST")
+        .uri("/api/staff")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, &instructor_cookie)
+        .body(Body::from(
+          json!({
+            "email": "blocked@example.com",
+            "display_name": "Blocked User",
+            "role": "instructor",
+            "active": true
+          })
+          .to_string(),
+        ))
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert_eq!(create.status(), StatusCode::FORBIDDEN);
+
+  let deactivate = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("POST")
+        .uri("/api/staff/staff-lee-wells/deactivate")
+        .header(header::COOKIE, instructor_cookie)
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+  assert_eq!(deactivate.status(), StatusCode::FORBIDDEN);
+}
