@@ -193,6 +193,11 @@ _Avoid_: Shift, time off, availability block
   A fixed navigation panel that groups the app by domain subject.
   _Avoid_: Top navigation when the screen is intended for dense operational work.
 
+  **Mobile Drawer**:
+  The small-screen form of the Sidebar. It slides in from the left, keeps the same Subject and Subitem structure,
+  and closes after a Subitem is selected.
+  _Avoid_: Replacing the sidebar with unrelated bottom tabs or a different navigation model.
+
   **Subject**:
   A top-level sidebar group such as **Schedule**, **Students**, **Horses**, **Lessons**, **Review**, or
   **Admin**.
@@ -261,8 +266,10 @@ _Avoid_: Shift, time off, availability block
   ### Staff UI relationships
 
   - The left sidebar stays fixed while the right-side content scrolls independently.
+  - On small screens, the sidebar becomes a left Mobile Drawer with the same nested navigation.
   - Only one top-level sidebar subject is open at a time.
   - Selecting another subject collapses the previous one automatically.
+  - Selecting a Subitem in the Mobile Drawer closes the drawer and updates the right-side working area.
   - The sidebar resets to **Schedule** on reload for every role.
   - Unauthorized sidebar items are hidden completely.
   - The right side keeps one selected record visible at a time.

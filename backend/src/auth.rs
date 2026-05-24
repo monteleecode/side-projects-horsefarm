@@ -143,9 +143,10 @@ pub struct StaffUser {
 }
 
 #[derive(Clone, Debug)]
-struct AppState {
+pub(crate) struct AppState {
   config: AppConfig,
-  staff_directory: StaffDirectory,
+  pub(crate) staff_directory: StaffDirectory,
+  pub(crate) students: crate::students::StudentStore,
   sessions: Arc<dyn SessionStore>,
   google_auth: Arc<dyn GoogleAuthProvider>,
 }
@@ -158,6 +159,7 @@ impl AppState {
   ) -> Self {
     Self {
       staff_directory: StaffDirectory::new(),
+      students: crate::students::StudentStore::seeded(),
       sessions,
       google_auth,
       config,
@@ -166,7 +168,7 @@ impl AppState {
 }
 
 #[derive(Clone, Default, Debug)]
-struct StaffDirectory {
+pub(crate) struct StaffDirectory {
   by_id: Arc<RwLock<HashMap<String, StaffUser>>>,
   by_email: Arc<RwLock<HashMap<String, String>>>,
 }
@@ -185,6 +187,13 @@ impl StaffDirectory {
         id: "staff-mkt-monte".to_string(),
         email: "mkt.monte@gmail.com".to_string(),
         display_name: "Mkt Monte".to_string(),
+        role: StaffRole::Instructor,
+        active: true,
+      },
+      StaffUser {
+        id: "staff-lee-wells".to_string(),
+        email: "lee.wells@example.com".to_string(),
+        display_name: "Lee Wells".to_string(),
         role: StaffRole::Instructor,
         active: true,
       },
@@ -214,7 +223,7 @@ impl StaffDirectory {
     }
   }
 
-  fn get_by_id(&self, id: &str) -> Option<StaffUser> {
+  pub(crate) fn get_by_id(&self, id: &str) -> Option<StaffUser> {
     self.by_id.read().ok()?.get(id).cloned()
   }
 
@@ -531,6 +540,10 @@ impl GoogleAuthProvider for MockGoogleAuthProvider {
         email: "mkt.monte@gmail.com".to_string(),
         display_name: "Mkt Monte".to_string(),
       }),
+      "google-code-lee" => Ok(GoogleProfile {
+        email: "lee.wells@example.com".to_string(),
+        display_name: "Lee Wells".to_string(),
+      }),
       "google-code-unknown" => Ok(GoogleProfile {
         email: "outsider@example.com".to_string(),
         display_name: "Outsider".to_string(),
@@ -626,6 +639,7 @@ fn api_router() -> Router {
     .route("/auth/emergency", post(emergency_login))
     .route("/logout", post(logout))
     .route("/staff/:user_id/deactivate", post(deactivate_staff_user))
+    .merge(crate::students::student_router())
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -853,7 +867,10 @@ fn auth_failure_redirect(state: &AppState, reason: &'static str) -> Response {
   response
 }
 
-async fn current_user(state: &Arc<AppState>, headers: &HeaderMap) -> Result<StaffUser, Response> {
+pub(crate) async fn current_user(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+) -> Result<StaffUser, Response> {
   let session_id = session_id_from_headers(&state.config.session_cookie_name, headers)
     .ok_or_else(|| unauthorized("missing_session"))?;
 

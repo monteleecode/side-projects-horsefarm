@@ -4,7 +4,7 @@
 
   ## Context
 
-  The staff app needs to support dense operational work around students, horses, lessons, review queues, and
+  The staff app needs to support dense operational work around students, horses, lessons, Operational Review, and
   scheduling. The layout must keep navigation obvious, records readable, and editing constrained to the parts of
   the record that a role can actually change.
 
@@ -13,6 +13,7 @@
 
   - `Schedule` is the shared default subject for every role.
   - `Students`, `Horses`, `Lessons`, `Review`, and `Admin` are the top-level domain subjects.
+  - `Review` is a sidebar subject; the work inside it is `Operational Review`, not an approval queue.
   - Staff need one level of nesting only.
   - The selected record should be readable as a single stacked detail view rather than a split master-detail
   workspace.
@@ -32,6 +33,7 @@
   - Make those counts represent records needing attention rather than raw totals.
   - Use icon plus text in the sidebar, with minimal outline icons.
   - On small screens, collapse the sidebar into a left drawer that keeps the same nested structure.
+  - Use `Subject`, `Subitem`, and `Attention Count` with the meanings defined in `CONTEXT.md`.
 
   ### Record Layout
 
@@ -45,6 +47,7 @@
   - Keep quick actions icon-plus-text and right-aligned in the summary strip.
   - Limit the summary strip to the three most common safe actions.
   - Use in-page section anchors for long records, but keep the record URL at the record level.
+  - Update the record URL to the selected record path without putting section state in the URL.
 
   ### List Behavior
 
@@ -85,6 +88,8 @@
   - Use the current calendar week, starting on Monday, for week view.
   - Use 30-minute time slots.
   - Render warnings inline on event cards.
+  - Use product terms from `CONTEXT.md`, including `Lesson Balance`, `Lesson Ledger`, `Lesson Credit`,
+    `Practice Ride`, `Horse Assignment`, `Horse Concern`, `Guardian`, and `Warning Override`.
 
   ### Responsiveness and Width
 
