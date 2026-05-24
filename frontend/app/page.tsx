@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type FormEvent
-} from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 type SessionUser = {
   id: string;
@@ -15,158 +9,463 @@ type SessionUser = {
   role: "admin" | "instructor";
 };
 
-type Contact = {
-  id: string;
-  name: string;
-  relationship: string | null;
-  phone: string;
-  email: string | null;
-};
-
-type StaffReference = {
-  id: string;
-  display_name: string;
-};
-
-type RidingLevel = {
-  id: string;
-  display_name: string;
-  description: string;
-  sort_order: number;
-};
-
-type RidingLevelOpinion = {
-  id: string;
-  submitted_by: StaffReference;
-  recommended_riding_level: RidingLevel;
-  note: string | null;
-  enters_review: boolean;
-  created_at: string;
-};
-
-type Student = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  full_name: string;
-  active: boolean;
-  age_years: number;
-  is_minor: boolean;
-  date_of_birth: string | null;
-  main_instructor: StaffReference;
-  riding_level: RidingLevel;
-  notes: string | null;
-  guardians: Contact[];
-  emergency_contacts: Contact[];
-  opinions: RidingLevelOpinion[];
-};
-
 type MeResponse = {
   user: SessionUser;
 };
 
-type StudentsResponse = {
-  students: Student[];
+type SubjectId = "schedule" | "students" | "horses" | "lessons" | "review" | "admin";
+
+type NavChild = {
+  id: string;
+  label: string;
+  count?: number;
 };
 
-type RidingLevelsResponse = {
-  riding_levels: RidingLevel[];
+type NavSubject = {
+  id: SubjectId;
+  label: string;
+  icon: string;
+  count?: number;
+  adminOnly?: boolean;
+  children: NavChild[];
 };
 
-type Workspace = {
-  students: Student[];
-  riding_levels: RidingLevel[];
+type StaffRecord = {
+  name: string;
+  eyebrow: string;
+  status: string;
+  meta: string;
+  initials: string;
+  action: string;
+  sections: Array<{
+    title: string;
+    summary: string;
+    body: string;
+  }>;
 };
 
-type StudentFormState = {
-  first_name: string;
-  last_name: string;
-  date_of_birth: string;
-  active: boolean;
-  main_instructor_id: string;
-  riding_level_id: string;
-  notes: string;
-  guardian_name: string;
-  guardian_relationship: string;
-  guardian_phone: string;
-  guardian_email: string;
-  emergency_name: string;
-  emergency_relationship: string;
-  emergency_phone: string;
-  emergency_email: string;
-};
-
-type OpinionFormState = {
-  student_id: string;
-  recommended_riding_level_id: string;
-  note: string;
-};
-
-type RidingLevelDrafts = Record<string, { display_name: string; description: string }>;
-type ScheduleView = "calendar" | "list" | "week";
-type SidebarSection = "schedule" | "students" | "reviews";
-
-const emptyStudentForm: StudentFormState = {
-  first_name: "",
-  last_name: "",
-  date_of_birth: "",
-  active: true,
-  main_instructor_id: "staff-mkt-monte",
-  riding_level_id: "level-green",
-  notes: "",
-  guardian_name: "",
-  guardian_relationship: "guardian",
-  guardian_phone: "",
-  guardian_email: "",
-  emergency_name: "",
-  emergency_relationship: "emergency contact",
-  emergency_phone: "",
-  emergency_email: ""
-};
-
-const emptyOpinionForm: OpinionFormState = {
-  student_id: "",
-  recommended_riding_level_id: "level-green",
-  note: ""
-};
-
-const scheduleEntries = [
+const navigation: NavSubject[] = [
   {
-    time: "08:00",
-    title: "Lesson with active rider",
-    note: "Calendar check passes, warning shown inline."
+    id: "schedule",
+    label: "Schedule",
+    icon: "calendar",
+    count: 3,
+    children: [
+      { id: "calendar", label: "Calendar" },
+      { id: "week", label: "Week list", count: 2 }
+    ]
   },
   {
-    time: "09:30",
-    title: "Practice ride",
-    note: "Counts toward horse workload and same-day activity."
+    id: "students",
+    label: "Students",
+    icon: "students",
+    count: 5,
+    children: [
+      { id: "active", label: "Active students", count: 3 },
+      { id: "needs-review", label: "Needs review", count: 2 }
+    ]
   },
   {
-    time: "11:00",
-    title: "Open planning block",
-    note: "Ready for the next scheduling dialog."
+    id: "horses",
+    label: "Horses",
+    icon: "horse",
+    count: 2,
+    children: [
+      { id: "assignment", label: "Assignment board", count: 1 },
+      { id: "care", label: "Care notes", count: 1 }
+    ]
+  },
+  {
+    id: "lessons",
+    label: "Lessons",
+    icon: "clipboard",
+    count: 4,
+    children: [
+      { id: "today", label: "Today's lessons", count: 3 },
+      { id: "ledger", label: "Lesson ledger", count: 1 }
+    ]
+  },
+  {
+    id: "review",
+    label: "Review",
+    icon: "review",
+    count: 7,
+    children: [
+      { id: "queue", label: "Operational review", count: 7 },
+      { id: "completed", label: "Completed" }
+    ]
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    icon: "settings",
+    count: 1,
+    adminOnly: true,
+    children: [
+      { id: "staff", label: "Staff access", count: 1 },
+      { id: "audit", label: "Audit trail" }
+    ]
   }
 ];
+
+const recordsBySubject: Record<SubjectId, StaffRecord> = {
+  schedule: {
+    name: "Saturday lesson schedule",
+    eyebrow: "Schedule record",
+    status: "3 warnings",
+    meta: "Calendar view | Today | 30-minute slots",
+    initials: "SA",
+    action: "Add lesson",
+    sections: [
+      {
+        title: "Calendar",
+        summary: "Current week",
+        body: "The calendar opens to today and keeps warnings inline on lesson cards."
+      },
+      {
+        title: "Conflicts",
+        summary: "3 need attention",
+        body: "Two horse assignments overlap and one lesson is missing an instructor confirmation."
+      },
+      {
+        title: "Audit trail",
+        summary: "Admin visible",
+        body: "Recent schedule edits are retained at the bottom of the record."
+      }
+    ]
+  },
+  students: {
+    name: "Maya Thompson",
+    eyebrow: "Student record",
+    status: "Needs review",
+    meta: "Beginner group | Lesson Balance: 4 | Guardian contact verified",
+    initials: "MT",
+    action: "Message guardian",
+    sections: [
+      {
+        title: "Profile",
+        summary: "Active",
+        body: "Contact details, riding level, guardian information, and current attendance notes stay in one stacked detail view."
+      },
+      {
+        title: "Lesson Progress",
+        summary: "2 notes",
+        body: "Instructor notes are visible in reduced form with clear editing controls for authorized staff."
+      },
+      {
+        title: "Lesson Balance",
+        summary: "4 available",
+        body: "Lesson Credits and Manual Ledger Adjustments are listed from the append-only Lesson Ledger."
+      }
+    ]
+  },
+  horses: {
+    name: "Juniper",
+    eyebrow: "Horse record",
+    status: "Horse Concern",
+    meta: "Pony barn | Light work only | Assigned twice today",
+    initials: "JU",
+    action: "Add care note",
+    sections: [
+      {
+        title: "Assignment",
+        summary: "Light work",
+        body: "The assignment board shows suitability, workload, and conflicts without splitting the page into a separate detail workspace."
+      },
+      {
+        title: "Horse Concerns",
+        summary: "1 open",
+        body: "Horse Concerns are prominent and stay readable before Horse Assignment decisions are made."
+      },
+      {
+        title: "Usage History",
+        summary: "This week",
+        body: "Recent Lessons and Practice Rides are ordered by operational importance."
+      }
+    ]
+  },
+  lessons: {
+    name: "Beginner flatwork",
+    eyebrow: "Lesson record",
+    status: "Instructor ready",
+    meta: "10:30 AM | Ring 2 | 5 students",
+    initials: "BF",
+    action: "Take attendance",
+    sections: [
+      {
+        title: "Roster",
+        summary: "5 students",
+        body: "Lesson Participants and Horse Assignments remain compact so staff can scan the Lesson quickly."
+      },
+      {
+        title: "Plan",
+        summary: "Flatwork",
+        body: "The lesson plan, warnings, and instructor notes share the same card language as student and horse records."
+      },
+      {
+        title: "Lesson Credits",
+        summary: "Pending",
+        body: "Lesson Credit deductions are explicit and can be saved independently from other Lesson edits."
+      }
+    ]
+  },
+  review: {
+    name: "Operational Review",
+    eyebrow: "Operational Review record",
+    status: "7 open",
+    meta: "Needs review first | Student, Horse, and Lesson items",
+    initials: "RQ",
+    action: "Resolve item",
+    sections: [
+      {
+        title: "Operational Review",
+        summary: "Sorted by urgency",
+        body: "Items that need review are sorted above everything else and retain their source record context."
+      },
+      {
+        title: "Decision",
+        summary: "In place",
+        body: "Review actions are scoped to the selected section with explicit save and cancel controls."
+      },
+      {
+        title: "History",
+        summary: "Recent",
+        body: "Completed decisions stay visible without taking over the active queue."
+      }
+    ]
+  },
+  admin: {
+    name: "Staff access",
+    eyebrow: "Admin record",
+    status: "1 pending",
+    meta: "Admin only | Role-aware permissions",
+    initials: "AD",
+    action: "Invite staff",
+    sections: [
+      {
+        title: "Staff Directory",
+        summary: "Access control",
+        body: "Only authorized staff records are visible, and admin subjects are hidden for instructor accounts."
+      },
+      {
+        title: "Permissions",
+        summary: "Role scoped",
+        body: "Staff roles determine which subjects and edit controls are available in the shell."
+      },
+      {
+        title: "Audit Trail",
+        summary: "Inline",
+        body: "Administrative changes are shown as the bottom section of the record."
+      }
+    ]
+  }
+};
+
+const recordsBySubitem: Partial<Record<SubjectId, Record<string, StaffRecord>>> = {
+  schedule: {
+    week: {
+      name: "Current week schedule",
+      eyebrow: "Week View",
+      status: "2 warnings",
+      meta: "Week starts Monday | 30-minute slots | 18 scheduled activities",
+      initials: "WK",
+      action: "Add Lesson",
+      sections: [
+        {
+          title: "Week View",
+          summary: "Monday start",
+          body: "The week view groups Lessons and Practice Rides by day while keeping Scheduling Constraints visible."
+        },
+        {
+          title: "Warning Overrides",
+          summary: "2 open",
+          body: "Same-Day Student Activity Warnings stay inline until staff acknowledge a Warning Override."
+        },
+        {
+          title: "Audit Trail",
+          summary: "Admin visible",
+          body: "Recent week-level schedule edits remain attached to the selected schedule record."
+        }
+      ]
+    }
+  },
+  students: {
+    "needs-review": {
+      name: "Students needing review",
+      eyebrow: "Student list",
+      status: "2 open",
+      meta: "Riding Level Opinions | Guardian gaps | Lesson Balance review",
+      initials: "SR",
+      action: "Open Review",
+      sections: [
+        {
+          title: "Review Reasons",
+          summary: "2 students",
+          body: "Students enter this view when their record has a Riding Level Opinion, missing Guardian data, or Lesson Balance attention."
+        },
+        {
+          title: "Next Action",
+          summary: "Admin scoped",
+          body: "Admin users can resolve record data. Instructors can submit notes without changing the authoritative Riding Level."
+        },
+        {
+          title: "Audit Trail",
+          summary: "Inline",
+          body: "Student record changes stay visible at the bottom of the detail stack."
+        }
+      ]
+    }
+  },
+  horses: {
+    care: {
+      name: "Horse Concerns",
+      eyebrow: "Horse list",
+      status: "1 open",
+      meta: "Horse Status | Limited Use | Horse Availability Constraints",
+      initials: "HC",
+      action: "Add Concern",
+      sections: [
+        {
+          title: "Open Concerns",
+          summary: "Needs staff attention",
+          body: "Horse Concerns do not change Horse Status by themselves, but they stay visible before Horse Assignment decisions."
+        },
+        {
+          title: "Limited Use",
+          summary: "Acknowledgement required",
+          body: "Limited Use horses can still be scheduled when staff explicitly acknowledge the warning."
+        },
+        {
+          title: "Usage History",
+          summary: "This week",
+          body: "Lessons and Practice Rides are shown together so workload is easy to scan."
+        }
+      ]
+    }
+  },
+  lessons: {
+    ledger: {
+      name: "Lesson Ledger",
+      eyebrow: "Lesson Balance record",
+      status: "1 adjustment",
+      meta: "Lesson Packages | Lesson Credits | Manual Ledger Adjustments",
+      initials: "LL",
+      action: "Add Adjustment",
+      sections: [
+        {
+          title: "Lesson Balance",
+          summary: "Calculated",
+          body: "The current Lesson Balance is calculated from package additions, Lesson Credit deductions, and corrections."
+        },
+        {
+          title: "Manual Ledger Adjustments",
+          summary: "Admin only",
+          body: "Manual Ledger Adjustments add new entries without editing prior Lesson Ledger rows."
+        },
+        {
+          title: "Audit Trail",
+          summary: "Inline",
+          body: "Every balance-affecting change remains visible with its source."
+        }
+      ]
+    }
+  },
+  review: {
+    completed: {
+      name: "Completed Operational Review",
+      eyebrow: "Operational Review history",
+      status: "Recent",
+      meta: "Already-effective changes | Admin attention history",
+      initials: "CR",
+      action: "Reopen Item",
+      sections: [
+        {
+          title: "Completed Items",
+          summary: "Recent decisions",
+          body: "Operational Review history shows already-effective changes that staff already handled."
+        },
+        {
+          title: "Decision Notes",
+          summary: "Record context",
+          body: "Each completed review item keeps the source Student, Horse, Lesson, or Lesson Ledger context."
+        },
+        {
+          title: "Audit Trail",
+          summary: "Inline",
+          body: "Review decisions stay attached to the record rather than becoming a separate approval workflow."
+        }
+      ]
+    }
+  },
+  admin: {
+    audit: {
+      name: "Audit trail",
+      eyebrow: "Admin record",
+      status: "Admin only",
+      meta: "Staff access | Session changes | Record edits",
+      initials: "AT",
+      action: "Export Audit",
+      sections: [
+        {
+          title: "Recent Events",
+          summary: "System-wide",
+          body: "Admin users can scan staff access changes, session events, and record edits from one place."
+        },
+        {
+          title: "Staff Access",
+          summary: "Role scoped",
+          body: "Access changes are tied to Admin and Instructor records."
+        },
+        {
+          title: "Record Changes",
+          summary: "Inline sources",
+          body: "Audit events link back to the selected record-level URL."
+        }
+      ]
+    }
+  }
+};
+
+const subjectItems: Record<SubjectId, string[]> = {
+  schedule: ["10:00 AM private lesson", "10:30 AM beginner flatwork", "11:00 AM practice ride"],
+  students: ["Maya Thompson", "Eli Chen", "Sofia Reyes"],
+  horses: ["Juniper", "Copper", "Bluebell"],
+  lessons: ["Beginner flatwork", "Novice poles", "Private lunge"],
+  review: ["Missing instructor confirmation", "Horse workload conflict", "Manual Ledger Adjustment"],
+  admin: ["New staff invitation", "Role change request", "Emergency account review"]
+};
+
+const itemsBySubitem: Partial<Record<SubjectId, Record<string, string[]>>> = {
+  schedule: {
+    week: ["Monday beginner lesson", "Wednesday Practice Ride", "Friday Lesson Type review"]
+  },
+  students: {
+    "needs-review": ["Maya Thompson", "Riding Level Opinion", "Guardian follow-up"]
+  },
+  horses: {
+    care: ["Juniper Horse Concern", "Limited Use acknowledgement", "Horse Availability Constraint"]
+  },
+  lessons: {
+    ledger: ["Lesson Package addition", "Lesson Credit deduction", "Manual Ledger Adjustment"]
+  },
+  review: {
+    completed: ["Resolved Horse Concern", "Closed Lesson Balance review", "Reviewed Warning Override"]
+  },
+  admin: {
+    audit: ["Staff access changed", "Emergency login used", "Student record edited"]
+  }
+};
 
 export default function HomePage() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [workspaceMessage, setWorkspaceMessage] = useState("");
   const [emergencyUsername, setEmergencyUsername] = useState("farmadmin");
   const [emergencyPassword, setEmergencyPassword] = useState("farmadmin");
-  const [workspace, setWorkspace] = useState<Workspace>({ students: [], riding_levels: [] });
-  const [studentForm, setStudentForm] = useState<StudentFormState>(emptyStudentForm);
-  const [opinionForm, setOpinionForm] = useState<OpinionFormState>(emptyOpinionForm);
-  const [ridingLevelDrafts, setRidingLevelDrafts] = useState<RidingLevelDrafts>({});
-  const [selectedStudentId, setSelectedStudentId] = useState("");
-  const [studentQuery, setStudentQuery] = useState("");
-  const [studentFilter, setStudentFilter] = useState<"all" | "active" | "minor">("all");
-  const [visibleCount, setVisibleCount] = useState(4);
-  const [scheduleView, setScheduleView] = useState<ScheduleView>("calendar");
-  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("schedule");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [openSubject, setOpenSubject] = useState<SubjectId | null>("schedule");
+  const [selectedSubject, setSelectedSubject] = useState<SubjectId>("schedule");
+  const [selectedChild, setSelectedChild] = useState("calendar");
+  const [searchText, setSearchText] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -200,135 +499,10 @@ export default function HomePage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!user) {
-      setWorkspace({ students: [], riding_levels: [] });
-      setStudentForm(emptyStudentForm);
-      setOpinionForm(emptyOpinionForm);
-      setRidingLevelDrafts({});
-      setSelectedStudentId("");
-      setSidebarOpen(false);
-      return;
-    }
-
-    void loadWorkspace();
-  }, [user]);
-
-  useEffect(() => {
-    if (!workspace.students.length) {
-      return;
-    }
-
-    setSelectedStudentId((current) => {
-      if (current && workspace.students.some((student) => student.id === current)) {
-        return current;
-      }
-
-      return workspace.students[0]?.id ?? "";
-    });
-  }, [workspace.students]);
-
-  useEffect(() => {
-    setVisibleCount(4);
-  }, [studentQuery, studentFilter]);
-
-  async function loadWorkspace() {
-    setWorkspaceLoading(true);
-
-    try {
-      const [studentsResponse, ridingLevelsResponse] = await Promise.all([
-        fetch("/api/students"),
-        fetch("/api/riding-levels")
-      ]);
-
-      if (!studentsResponse.ok || !ridingLevelsResponse.ok) {
-        setWorkspaceMessage("Could not load student management data.");
-        return;
-      }
-
-      const studentsPayload = (await studentsResponse.json()) as StudentsResponse;
-      const levelsPayload = (await ridingLevelsResponse.json()) as RidingLevelsResponse;
-
-      setWorkspace({
-        students: studentsPayload.students,
-        riding_levels: levelsPayload.riding_levels
-      });
-
-      const firstStudent = studentsPayload.students[0];
-      const firstLevel = levelsPayload.riding_levels[0];
-      const adminMainInstructor =
-        firstStudent?.main_instructor.id ?? studentForm.main_instructor_id ?? "staff-mkt-monte";
-
-      setStudentForm((current) => ({
-        ...current,
-        main_instructor_id: adminMainInstructor,
-        riding_level_id: firstLevel?.id ?? current.riding_level_id
-      }));
-
-      setOpinionForm((current) => ({
-        student_id: current.student_id || firstStudent?.id || "",
-        recommended_riding_level_id: current.recommended_riding_level_id || firstLevel?.id || "level-green",
-        note: current.note
-      }));
-
-      setRidingLevelDrafts(
-        Object.fromEntries(
-          levelsPayload.riding_levels.map((level) => [
-            level.id,
-            { display_name: level.display_name, description: level.description }
-          ])
-        )
-      );
-    } finally {
-      setWorkspaceLoading(false);
-    }
-  }
-
-  const selectedStudent = useMemo(
-    () => workspace.students.find((student) => student.id === selectedStudentId) ?? null,
-    [selectedStudentId, workspace.students]
+  const visibleNavigation = useMemo(
+    () => navigation.filter((subject) => !subject.adminOnly || user?.role === "admin"),
+    [user?.role]
   );
-
-  const filteredStudents = useMemo(() => {
-    const normalizedQuery = studentQuery.trim().toLowerCase();
-
-    return [...workspace.students]
-      .filter((student) => {
-        if (studentFilter === "active" && !student.active) {
-          return false;
-        }
-
-        if (studentFilter === "minor" && !student.is_minor) {
-          return false;
-        }
-
-        if (!normalizedQuery) {
-          return true;
-        }
-
-        return [student.full_name, student.riding_level.display_name, student.main_instructor.display_name]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery);
-      })
-      .sort((left, right) => importanceScore(right) - importanceScore(left));
-  }, [studentFilter, studentQuery, workspace.students]);
-
-  const visibleStudents = filteredStudents.slice(0, visibleCount);
-  const remainingStudents = Math.max(filteredStudents.length - visibleStudents.length, 0);
-  const reviewCount = workspace.students.filter((student) =>
-    student.opinions.some((opinion) => opinion.enters_review)
-  ).length;
-  const inactiveCount = workspace.students.filter((student) => !student.active).length;
-  const attentionCount = reviewCount + inactiveCount;
-  const selectedOpinions = selectedStudent?.opinions ?? [];
-
-  const weekStart = startOfMonday(new Date());
-  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const scheduleWarning =
-    selectedStudent && selectedStudent.opinions.some((opinion) => opinion.enters_review)
-      ? `${selectedStudent.full_name} has a riding level opinion that enters review.`
-      : "Inline warnings stay visible while staff edit the schedule.";
 
   function signInWithGoogle() {
     window.location.assign("/api/auth/google/start");
@@ -362,860 +536,638 @@ export default function HomePage() {
 
     const payload = (await response.json()) as MeResponse;
     setUser(payload.user);
+    setOpenSubject("schedule");
+    setSelectedSubject("schedule");
+    setSelectedChild("calendar");
     setMessage("Emergency login successful.");
   }
 
-  async function createStudent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setWorkspaceMessage("");
-
-    const response = await fetch("/api/students", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        first_name: studentForm.first_name,
-        last_name: studentForm.last_name,
-        date_of_birth: studentForm.date_of_birth,
-        active: studentForm.active,
-        main_instructor_id: studentForm.main_instructor_id,
-        riding_level_id: studentForm.riding_level_id,
-        notes: studentForm.notes || null,
-        guardians: studentForm.guardian_name
-          ? [
-              {
-                name: studentForm.guardian_name,
-                relationship: studentForm.guardian_relationship || "guardian",
-                phone: studentForm.guardian_phone,
-                email: studentForm.guardian_email || null
-              }
-            ]
-          : [],
-        emergency_contacts: [
-          {
-            name: studentForm.emergency_name,
-            relationship: studentForm.emergency_relationship || "emergency contact",
-            phone: studentForm.emergency_phone,
-            email: studentForm.emergency_email || null
-          }
-        ]
-      })
-    });
-
-    if (!response.ok) {
-      setWorkspaceMessage("Student create failed. Check required fields.");
-      return;
-    }
-
-    setWorkspaceMessage("Student created.");
-    setStudentForm((current) => ({
-      ...emptyStudentForm,
-      main_instructor_id: current.main_instructor_id,
-      riding_level_id: current.riding_level_id
-    }));
-    await loadWorkspace();
+  function selectSubject(subject: NavSubject) {
+    setOpenSubject(openSubject === subject.id ? null : subject.id);
+    setSelectedSubject(subject.id);
+    setSelectedChild(subject.children[0]?.id ?? subject.id);
+    setSearchText("");
   }
 
-  async function submitOpinion(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setWorkspaceMessage("");
-
-    const response = await fetch(`/api/students/${opinionForm.student_id}/riding-level-opinions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        recommended_riding_level_id: opinionForm.recommended_riding_level_id,
-        note: opinionForm.note || null
-      })
-    });
-
-    if (!response.ok) {
-      setWorkspaceMessage("Riding level opinion failed.");
-      return;
-    }
-
-    setWorkspaceMessage("Riding level opinion submitted.");
-    await loadWorkspace();
-  }
-
-  async function saveRidingLevel(ridingLevelId: string) {
-    const draft = ridingLevelDrafts[ridingLevelId];
-    if (!draft) {
-      return;
-    }
-
-    setWorkspaceMessage("");
-    const response = await fetch(`/api/riding-levels/${ridingLevelId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(draft)
-    });
-
-    if (!response.ok) {
-      setWorkspaceMessage("Riding level update failed.");
-      return;
-    }
-
-    const updated = (await response.json()) as RidingLevel;
-    setWorkspace((current) => ({
-      ...current,
-      riding_levels: current.riding_levels.map((level) =>
-        level.id === updated.id ? updated : level
-      )
-    }));
-    setRidingLevelDrafts((current) => ({
-      ...current,
-      [updated.id]: {
-        display_name: updated.display_name,
-        description: updated.description
-      }
-    }));
-    setWorkspaceMessage("Riding level updated.");
+  function selectChild(subject: NavSubject, child: NavChild) {
+    setOpenSubject(subject.id);
+    setSelectedSubject(subject.id);
+    setSelectedChild(child.id);
+    setSearchText("");
   }
 
   return (
-    <main className="page-shell" style={pageStyle}>
-      <div className="page-glow" aria-hidden="true" style={pageGlowStyle} />
+    <main style={pageStyle}>
+      {!user ? (
+        <section aria-labelledby="mvp-shell-title" style={signinShellStyle}>
+          <div style={heroStyle}>
+            <div style={eyebrowStyle}>Staff workspace</div>
+            <h1 id="mvp-shell-title" style={titleStyle}>
+              Horse Farm Management
+            </h1>
+            <p style={ledeStyle}>
+              Internal scheduling, horse assignment, practice ride, and lesson credit tools for farm
+              staff.
+            </p>
+          </div>
 
-      <section className="app-shell" style={shellStyle}>
-        <div style={heroStyle}>
-          <div style={eyebrowStyle}>Staff workspace</div>
-          <h1 id="mvp-shell-title" style={titleStyle}>
-            Horse Farm Management
-          </h1>
-          <p style={ledeStyle}>
-            Staff-only student records, schedule views, and single-record editing in a layout that
-            keeps the sidebar, detail stack, and calendar visible without crowding the page.
-          </p>
-        </div>
+          <div style={signinCardStyle}>
+            <div style={signinCopyStyle}>
+              <div style={smallLabelStyle}>Authentication</div>
+              <h2 style={cardTitleStyle}>Sign in with Google</h2>
+              <p style={cardTextStyle}>
+                Use the farm&apos;s Google OAuth flow to access the staff shell.
+              </p>
+            </div>
 
-        {!user ? (
-          <AuthCard
-            emergencyPassword={emergencyPassword}
-            emergencyUsername={emergencyUsername}
-            message={message}
-            onEmergencyPasswordChange={setEmergencyPassword}
-            onEmergencyUsernameChange={setEmergencyUsername}
-            onEmergencySubmit={emergencyLogin}
-            onGoogleSignIn={signInWithGoogle}
-          />
-        ) : (
-          <>
-            <button
-              type="button"
-              className="mobile-menu-button"
-              style={mobileMenuButtonStyle}
-              onClick={() => setSidebarOpen(true)}
-              aria-expanded={sidebarOpen}
-              aria-controls="workspace-sidebar"
-            >
-              Open menu
+            <button type="button" onClick={signInWithGoogle} style={googleButtonStyle}>
+              <GoogleMark />
+              <span>Sign in with Google</span>
             </button>
 
-            <div
-              className="drawer-backdrop"
-              style={drawerBackdropStyle}
-              data-open={sidebarOpen ? "true" : "false"}
-              onClick={() => setSidebarOpen(false)}
-            />
+            <p style={footnoteStyle}>
+              Emergency access is available through the backend with the temporary
+              `farmadmin` account.
+            </p>
 
-            <div className="workspace-layout" style={workspaceLayoutStyle}>
-              <aside
-                id="workspace-sidebar"
-                className="workspace-sidebar"
-                style={sidebarStyle}
-                data-open={sidebarOpen ? "true" : "false"}
-                aria-label="Workspace navigation"
-              >
-                <div style={sidebarHeaderStyle}>
-                  <div>
-                    <div style={smallLabelStyle}>Navigation</div>
-                    <h2 style={sidebarTitleStyle}>Subject flow</h2>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarOpen(false)}
-                    style={sidebarCloseButtonStyle}
-                    aria-label="Close menu"
-                  >
-                    Close
-                  </button>
-                </div>
-
-                <nav style={sidebarNavStyle}>
-                  {[
-                    {
-                      id: "schedule" as const,
-                      label: "Schedule",
-                      description: "Calendar, list, and week views",
-                      count: 3
-                    },
-                    {
-                      id: "students" as const,
-                      label: "Students",
-                      description: "Search, filter, and open one subject",
-                      count: workspace.students.length
-                    },
-                    {
-                      id: "reviews" as const,
-                      label: "Reviews",
-                      description: "Attention items and audit visibility",
-                      count: attentionCount
-                    }
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSidebarSection(item.id);
-                        setSidebarOpen(false);
-                      }}
-                      style={sidebarNavButtonStyle(item.id === sidebarSection)}
-                    >
-                      <div style={sidebarNavButtonLabelStyle}>{item.label}</div>
-                      <div style={sidebarNavButtonCopyStyle}>{item.description}</div>
-                      <span style={sidebarCountPillStyle}>{item.count}</span>
-                    </button>
-                  ))}
-                </nav>
-
-                <section style={sidebarSummaryCardStyle}>
-                  <div style={smallLabelStyle}>Attention</div>
-                  <p style={sidebarSummaryTextStyle}>
-                    {attentionCount} items need follow-up across inactive students and review
-                    opinions.
-                  </p>
-                  <ul style={sidebarListStyle}>
-                    <li>{reviewCount} opinions enter review.</li>
-                    <li>{inactiveCount} students are inactive.</li>
-                    <li>One subject stays open at a time.</li>
-                  </ul>
-                </section>
-
-                <button type="button" onClick={logout} style={logoutButtonStyle}>
-                  Sign out
+            <details style={emergencyDisclosureStyle}>
+              <summary style={emergencySummaryStyle}>Emergency login</summary>
+              <form onSubmit={emergencyLogin} style={emergencyFormStyle}>
+                <label style={fieldLabelStyle}>
+                  Username
+                  <input
+                    value={emergencyUsername}
+                    onChange={(event) => setEmergencyUsername(event.target.value)}
+                    style={fieldInputStyle}
+                    autoComplete="username"
+                  />
+                </label>
+                <label style={fieldLabelStyle}>
+                  Password
+                  <input
+                    value={emergencyPassword}
+                    onChange={(event) => setEmergencyPassword(event.target.value)}
+                    style={fieldInputStyle}
+                    type="password"
+                    autoComplete="current-password"
+                  />
+                </label>
+                <button type="submit" style={emergencyButtonStyle}>
+                  Sign in as emergency admin
                 </button>
-              </aside>
+              </form>
+            </details>
+          </div>
 
-              <div style={workspaceMainStyle}>
-                <section style={surfaceStyle}>
-                  <div style={surfaceHeaderStyle}>
-                    <div>
-                      <div style={smallLabelStyle}>Subject list</div>
-                      <h2 style={panelTitleStyle}>Sticky search, filters, and importance sorting</h2>
-                    </div>
-                    <span style={pillStyle}>
-                      {filteredStudents.length} of {workspace.students.length}
-                    </span>
-                  </div>
-
-                  <div style={listToolbarStyle}>
-                    <label style={fieldLabelStyle}>
-                      Search
-                      <input
-                        value={studentQuery}
-                        onChange={(event) => setStudentQuery(event.target.value)}
-                        placeholder="Search students, riders, or instructors"
-                        style={fieldInputStyle}
-                      />
-                    </label>
-
-                    <label style={fieldLabelStyle}>
-                      Filter
-                      <select
-                        value={studentFilter}
-                        onChange={(event) =>
-                          setStudentFilter(event.target.value as "all" | "active" | "minor")
-                        }
-                        style={fieldInputStyle}
-                      >
-                        <option value="all">All students</option>
-                        <option value="active">Active only</option>
-                        <option value="minor">Minor only</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div style={studentListStyle}>
-                    {visibleStudents.map((student) => {
-                      const selected = student.id === selectedStudent?.id;
-
-                      return (
-                        <button
-                          key={student.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedStudentId(student.id);
-                            setSidebarSection("students");
-                          }}
-                          style={studentRowButtonStyle(selected)}
-                        >
-                          <div style={studentRowHeaderStyle}>
-                            <div>
-                              <div style={studentNameStyle}>{student.full_name}</div>
-                              <div style={studentMetaStyle}>
-                                {student.active ? "Active" : "Inactive"} |{" "}
-                                {student.is_minor ? "Minor" : "Adult"} | {student.riding_level.display_name}
-                              </div>
-                            </div>
-                            <span style={studentBadgeStyle(student.active)}>
-                              {student.opinions.length} opinions
-                            </span>
-                          </div>
-
-                          <div style={studentRowCopyStyle}>
-                            Main instructor: {student.main_instructor.display_name}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {remainingStudents > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setVisibleCount((current) => current + 4)}
-                      style={secondaryButtonStyle}
-                    >
-                      Load more
-                    </button>
-                  ) : null}
-                </section>
-
-                <section style={surfaceStyle}>
-                  <div style={surfaceHeaderStyle}>
-                    <div>
-                      <div style={smallLabelStyle}>Selected record</div>
-                      <h2 style={panelTitleStyle}>Summary strip and stacked detail cards</h2>
-                    </div>
-                    <span style={pillStyle}>
-                      {selectedStudent ? "One open subject" : "Select a subject"}
-                    </span>
-                  </div>
-
-                  {selectedStudent ? (
-                    <>
-                      <div style={summaryStripStyle}>
-                        <div>
-                          <div style={summaryNameStyle}>{selectedStudent.full_name}</div>
-                          <div style={summaryMetaStyle}>
-                            {selectedStudent.active ? "Active" : "Inactive"} | Age{" "}
-                            {selectedStudent.age_years} |{" "}
-                            {selectedStudent.is_minor ? "Minor" : "Adult"}
-                          </div>
-                        </div>
-                        <div style={summaryPillRowStyle}>
-                          <span style={summaryPillStyle}>{selectedStudent.riding_level.display_name}</span>
-                          <span style={summaryPillStyle}>{selectedStudent.main_instructor.display_name}</span>
-                          <span style={summaryPillStyle}>{selectedStudent.guardians.length} guardians</span>
-                          <span style={summaryPillStyle}>
-                            {selectedStudent.emergency_contacts.length} emergency contacts
-                          </span>
-                        </div>
-                      </div>
-
-                      <div style={detailGridStyle}>
-                        <article style={detailCardStyle}>
-                          <div style={detailCardLabelStyle}>Profile</div>
-                          <dl style={detailDefinitionStyle}>
-                            <Detail label="Student id" value={selectedStudent.id} />
-                            <Detail label="Date of birth" value={selectedStudent.date_of_birth ?? "Hidden for instructors"} />
-                            <Detail label="Main instructor" value={selectedStudent.main_instructor.display_name} />
-                            <Detail label="Riding level" value={selectedStudent.riding_level.display_name} />
-                          </dl>
-                        </article>
-
-                        <article style={detailCardStyle}>
-                          <div style={detailCardLabelStyle}>Contacts</div>
-                          <div style={stackListStyle}>
-                            <ListBlock
-                              title="Guardians"
-                              items={
-                                selectedStudent.guardians.length > 0
-                                  ? selectedStudent.guardians.map((contact) =>
-                                      [contact.name, contact.relationship, contact.phone]
-                                        .filter(Boolean)
-                                        .join(" | ")
-                                    )
-                                  : ["No guardians on file."]
-                              }
-                            />
-                            <ListBlock
-                              title="Emergency contacts"
-                              items={
-                                selectedStudent.emergency_contacts.length > 0
-                                  ? selectedStudent.emergency_contacts.map((contact) =>
-                                      [contact.name, contact.relationship, contact.phone]
-                                        .filter(Boolean)
-                                        .join(" | ")
-                                    )
-                                  : ["No emergency contacts on file."]
-                              }
-                            />
-                          </div>
-                        </article>
-
-                        <article style={detailCardStyle}>
-                          <div style={detailCardLabelStyle}>Riding level opinions</div>
-                          <ListBlock
-                            title="Latest opinions"
-                            items={
-                              selectedOpinions.length > 0
-                                ? selectedOpinions.map((opinion) =>
-                                    `${opinion.submitted_by.display_name} suggested ${opinion.recommended_riding_level.display_name}${opinion.enters_review ? " | enters review" : ""}`
-                                  )
-                                : ["No opinions yet."]
-                            }
-                          />
-                        </article>
-
-                        <article style={detailCardStyle}>
-                          <div style={detailCardLabelStyle}>Notes</div>
-                          <p style={noteTextStyle}>
-                            {selectedStudent.notes ?? "No notes yet. Empty states stay intentional and readable."}
-                          </p>
-                        </article>
-                      </div>
-
-                      {user.role === "admin" ? (
-                        <div style={adminSectionGridStyle}>
-                          <section style={detailCardStyle}>
-                            <div style={detailCardLabelStyle}>Section editing</div>
-                            <h3 style={subsectionTitleStyle}>Create student</h3>
-
-                            <form onSubmit={createStudent} style={formGridStyle}>
-                              <div style={twoColumnGridStyle}>
-                                <Field
-                                  label="First name"
-                                  value={studentForm.first_name}
-                                  onChange={(value) =>
-                                    setStudentForm((current) => ({ ...current, first_name: value }))
-                                  }
-                                />
-                                <Field
-                                  label="Last name"
-                                  value={studentForm.last_name}
-                                  onChange={(value) =>
-                                    setStudentForm((current) => ({ ...current, last_name: value }))
-                                  }
-                                />
-                              </div>
-
-                              <div style={twoColumnGridStyle}>
-                                <Field
-                                  label="Date of birth"
-                                  type="date"
-                                  value={studentForm.date_of_birth}
-                                  onChange={(value) =>
-                                    setStudentForm((current) => ({ ...current, date_of_birth: value }))
-                                  }
-                                />
-                                <Field
-                                  label="Main instructor id"
-                                  value={studentForm.main_instructor_id}
-                                  onChange={(value) =>
-                                    setStudentForm((current) => ({
-                                      ...current,
-                                      main_instructor_id: value
-                                    }))
-                                  }
-                                />
-                              </div>
-
-                              <div style={twoColumnGridStyle}>
-                                <SelectField
-                                  label="Riding level"
-                                  value={studentForm.riding_level_id}
-                                  options={workspace.riding_levels.map((level) => ({
-                                    value: level.id,
-                                    label: level.display_name
-                                  }))}
-                                  onChange={(value) =>
-                                    setStudentForm((current) => ({ ...current, riding_level_id: value }))
-                                  }
-                                />
-                                <label style={checkboxLabelStyle}>
-                                  <input
-                                    type="checkbox"
-                                    checked={studentForm.active}
-                                    onChange={(event) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        active: event.target.checked
-                                      }))
-                                    }
-                                  />
-                                  Active student
-                                </label>
-                              </div>
-
-                              <Field
-                                label="Notes"
-                                value={studentForm.notes}
-                                onChange={(value) =>
-                                  setStudentForm((current) => ({ ...current, notes: value }))
-                                }
-                              />
-
-                              <div style={subsectionStyle}>
-                                <div style={subsectionHeadingStyle}>Guardian</div>
-                                <div style={twoColumnGridStyle}>
-                                  <Field
-                                    label="Guardian name"
-                                    value={studentForm.guardian_name}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        guardian_name: value
-                                      }))
-                                    }
-                                  />
-                                  <Field
-                                    label="Guardian phone"
-                                    value={studentForm.guardian_phone}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        guardian_phone: value
-                                      }))
-                                    }
-                                  />
-                                </div>
-                                <div style={twoColumnGridStyle}>
-                                  <Field
-                                    label="Guardian relationship"
-                                    value={studentForm.guardian_relationship}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        guardian_relationship: value
-                                      }))
-                                    }
-                                  />
-                                  <Field
-                                    label="Guardian email"
-                                    value={studentForm.guardian_email}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        guardian_email: value
-                                      }))
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              <div style={subsectionStyle}>
-                                <div style={subsectionHeadingStyle}>Emergency contact</div>
-                                <div style={twoColumnGridStyle}>
-                                  <Field
-                                    label="Contact name"
-                                    value={studentForm.emergency_name}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        emergency_name: value
-                                      }))
-                                    }
-                                  />
-                                  <Field
-                                    label="Contact phone"
-                                    value={studentForm.emergency_phone}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        emergency_phone: value
-                                      }))
-                                    }
-                                  />
-                                </div>
-                                <div style={twoColumnGridStyle}>
-                                  <Field
-                                    label="Contact relationship"
-                                    value={studentForm.emergency_relationship}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        emergency_relationship: value
-                                      }))
-                                    }
-                                  />
-                                  <Field
-                                    label="Contact email"
-                                    value={studentForm.emergency_email}
-                                    onChange={(value) =>
-                                      setStudentForm((current) => ({
-                                        ...current,
-                                        emergency_email: value
-                                      }))
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              <button type="submit" style={primaryButtonStyle}>
-                                Create student
-                              </button>
-                            </form>
-                          </section>
-
-                          <section style={detailCardStyle}>
-                            <div style={detailCardLabelStyle}>Section editing</div>
-                            <h3 style={subsectionTitleStyle}>Riding levels</h3>
-
-                            <div style={levelListStyle}>
-                              {workspace.riding_levels.map((level) => {
-                                const draft = ridingLevelDrafts[level.id] ?? {
-                                  display_name: level.display_name,
-                                  description: level.description
-                                };
-
-                                return (
-                                  <article key={level.id} style={levelCardStyle}>
-                                    <div style={sectionHeadingStyle}>
-                                      <div>
-                                        <div style={listLabelStyle}>Stable id</div>
-                                        <strong>{level.id}</strong>
-                                      </div>
-                                      <span style={pillStyle}>#{level.sort_order}</span>
-                                    </div>
-
-                                    <div style={twoColumnGridStyle}>
-                                      <Field
-                                        label="Display name"
-                                        value={draft.display_name}
-                                        onChange={(value) =>
-                                          setRidingLevelDrafts((current) => ({
-                                            ...current,
-                                            [level.id]: {
-                                              display_name: value,
-                                              description: current[level.id]?.description ?? level.description
-                                            }
-                                          }))
-                                        }
-                                      />
-                                      <Field
-                                        label="Description"
-                                        value={draft.description}
-                                        onChange={(value) =>
-                                          setRidingLevelDrafts((current) => ({
-                                            ...current,
-                                            [level.id]: {
-                                              display_name:
-                                                current[level.id]?.display_name ?? level.display_name,
-                                              description: value
-                                            }
-                                          }))
-                                        }
-                                      />
-                                    </div>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => void saveRidingLevel(level.id)}
-                                      style={secondaryButtonStyle}
-                                    >
-                                      Save level
-                                    </button>
-                                  </article>
-                                );
-                              })}
-                            </div>
-                          </section>
-                        </div>
-                      ) : (
-                        <section style={detailCardStyle}>
-                          <div style={detailCardLabelStyle}>Section editing</div>
-                          <h3 style={subsectionTitleStyle}>Riding level opinion</h3>
-
-                          <form onSubmit={submitOpinion} style={formGridStyle}>
-                            <SelectField
-                              label="Student"
-                              value={opinionForm.student_id}
-                              options={workspace.students.map((student) => ({
-                                value: student.id,
-                                label: student.full_name
-                              }))}
-                              onChange={(value) =>
-                                setOpinionForm((current) => ({ ...current, student_id: value }))
-                              }
-                            />
-                            <SelectField
-                              label="Recommended level"
-                              value={opinionForm.recommended_riding_level_id}
-                              options={workspace.riding_levels.map((level) => ({
-                                value: level.id,
-                                label: level.display_name
-                              }))}
-                              onChange={(value) =>
-                                setOpinionForm((current) => ({
-                                  ...current,
-                                  recommended_riding_level_id: value
-                                }))
-                              }
-                            />
-                            <Field
-                              label="Note"
-                              value={opinionForm.note}
-                              onChange={(value) =>
-                                setOpinionForm((current) => ({ ...current, note: value }))
-                              }
-                            />
-                            <button type="submit" style={primaryButtonStyle}>
-                              Submit opinion
-                            </button>
-                          </form>
-                        </section>
-                      )}
-                    </>
-                  ) : (
-                    <p style={emptyStateStyle}>Select a subject from the list to open the stacked detail view.</p>
-                  )}
-                </section>
-
-                <section style={surfaceStyle}>
-                  <div style={surfaceHeaderStyle}>
-                    <div>
-                      <div style={smallLabelStyle}>Schedule</div>
-                      <h2 style={panelTitleStyle}>Calendar and list behavior</h2>
-                    </div>
-                    <span style={pillStyle}>Monday start | 30-minute slots</span>
-                  </div>
-
-                  <div style={toggleRowStyle}>
-                    {(["calendar", "list", "week"] as ScheduleView[]).map((view) => (
-                      <button
-                        key={view}
-                        type="button"
-                        onClick={() => setScheduleView(view)}
-                        style={scheduleToggleButtonStyle(scheduleView === view)}
-                      >
-                        {view}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div style={warningStripStyle}>{scheduleWarning}</div>
-
-                  {scheduleView === "calendar" ? (
-                    <div style={calendarGridStyle}>
-                      {scheduleEntries.map((entry) => (
-                        <article key={entry.time} style={calendarSlotStyle}>
-                          <div style={calendarTimeStyle}>{entry.time}</div>
-                          <div style={calendarEntryTitleStyle}>{entry.title}</div>
-                          <div style={calendarEntryCopyStyle}>{entry.note}</div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {scheduleView === "list" ? (
-                    <div style={listViewStyle}>
-                      {scheduleEntries.map((entry) => (
-                        <article key={entry.time} style={listRowStyle}>
-                          <div style={listRowTimeStyle}>{entry.time}</div>
-                          <div>
-                            <div style={calendarEntryTitleStyle}>{entry.title}</div>
-                            <div style={calendarEntryCopyStyle}>{entry.note}</div>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {scheduleView === "week" ? (
-                    <div style={weekGridStyle}>
-                      {weekDays.map((day, index) => (
-                        <article key={day.toISOString()} style={weekDayCardStyle}>
-                          <div style={weekDayLabelStyle}>{formatWeekday(day)}</div>
-                          <div style={weekDayDateStyle}>{formatMonthDay(day)}</div>
-                          <div style={weekDayPillStyle}>{index === 0 ? "Monday start" : "30 min slots"}</div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-          </>
-        )}
-
-        {message ? <p style={messageStyle}>{message}</p> : null}
-        {workspaceMessage ? <p style={messageStyle}>{workspaceMessage}</p> : null}
-      </section>
+          {message ? <p style={messageStyle}>{message}</p> : null}
+        </section>
+      ) : (
+        <StaffWorkspace
+          loading={loading}
+          message={message}
+          openSubject={openSubject}
+          selectedChild={selectedChild}
+          selectedSubject={selectedSubject}
+          searchText={searchText}
+          user={user}
+          visibleNavigation={visibleNavigation}
+          onLogout={logout}
+          onSelectChild={selectChild}
+          onSelectSubject={selectSubject}
+          onSearchTextChange={setSearchText}
+        />
+      )}
     </main>
   );
 }
 
-function AuthCard({
-  emergencyUsername,
-  emergencyPassword,
+function StaffWorkspace({
+  loading,
   message,
-  onGoogleSignIn,
-  onEmergencySubmit,
-  onEmergencyUsernameChange,
-  onEmergencyPasswordChange
+  openSubject,
+  selectedChild,
+  selectedSubject,
+  searchText,
+  user,
+  visibleNavigation,
+  onLogout,
+  onSelectChild,
+  onSelectSubject,
+  onSearchTextChange
 }: {
-  emergencyUsername: string;
-  emergencyPassword: string;
+  loading: boolean;
   message: string;
-  onGoogleSignIn: () => void;
-  onEmergencySubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  onEmergencyUsernameChange: (value: string) => void;
-  onEmergencyPasswordChange: (value: string) => void;
+  openSubject: SubjectId | null;
+  selectedChild: string;
+  selectedSubject: SubjectId;
+  searchText: string;
+  user: SessionUser;
+  visibleNavigation: NavSubject[];
+  onLogout: () => void;
+  onSelectChild: (subject: NavSubject, child: NavChild) => void;
+  onSelectSubject: (subject: NavSubject) => void;
+  onSearchTextChange: (value: string) => void;
 }) {
+  const contentRef = useRef<HTMLElement | null>(null);
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<"needs-review" | "active" | "all">("needs-review");
+  const [visibleCount, setVisibleCount] = useState(3);
+  const [selectedListItem, setSelectedListItem] = useState("");
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [draftSectionText, setDraftSectionText] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+  const activeSubject = visibleNavigation.find((subject) => subject.id === selectedSubject) ?? visibleNavigation[0];
+  const activeChild =
+    activeSubject.children.find((child) => child.id === selectedChild) ?? activeSubject.children[0];
+  const userSettingsRecord: StaffRecord = {
+    name: user.display_name,
+    eyebrow: "User settings",
+    status: user.role,
+    meta: `${user.email} | Profile and workspace preferences`,
+    initials: user.display_name
+      .split(" ")
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase(),
+    action: "Save Profile",
+    sections: [
+      {
+        title: "Profile",
+        summary: "Staff identity",
+        body: `Signed in as ${user.display_name} with ${user.email}.`
+      },
+      {
+        title: "Workspace",
+        summary: "Navigation defaults",
+        body: "The staff workspace opens to Schedule and keeps the left menu fixed on desktop."
+      },
+      {
+        title: "Security",
+        summary: "Session controls",
+        body: "Use Sign out when leaving a shared device."
+      }
+    ]
+  };
+  const record = isUserSettingsOpen
+    ? userSettingsRecord
+    : recordsBySubitem[activeSubject.id]?.[activeChild.id] ?? recordsBySubject[activeSubject.id];
+  const sourceItems = isUserSettingsOpen
+    ? ["Profile", "Workspace", "Security"]
+    : itemsBySubitem[activeSubject.id]?.[activeChild.id] ?? subjectItems[activeSubject.id];
+  const searchedItems = sourceItems.filter((item) =>
+    item.toLowerCase().includes(searchText.trim().toLowerCase())
+  );
+  const filteredItems = searchedItems.filter((_, index) => {
+    if (activeFilter === "all") {
+      return true;
+    }
+    if (activeFilter === "active") {
+      return index !== 1;
+    }
+    return index < 3;
+  });
+  const listItems = filteredItems.slice(0, visibleCount);
+
+  useEffect(() => {
+    if (isUserSettingsOpen) {
+      window.history.replaceState(null, "", "/settings/profile");
+      return;
+    }
+    const slug = record.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    window.history.replaceState(null, "", `/${activeSubject.id}/${slug}`);
+  }, [activeSubject.id, isUserSettingsOpen, record.name]);
+
+  useEffect(() => {
+    setActiveFilter("needs-review");
+    setVisibleCount(3);
+    setSelectedListItem("");
+    setEditingSection(null);
+    setActionNotice("");
+  }, [activeSubject.id, activeChild.id, isUserSettingsOpen]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 820px)");
+
+    function syncViewport() {
+      setIsNarrow(mediaQuery.matches);
+      if (!mediaQuery.matches) {
+        setIsDrawerOpen(false);
+      }
+    }
+
+    syncViewport();
+    mediaQuery.addEventListener("change", syncViewport);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    const scrollContainer = contentRef.current;
+    if (scrollContainer === null) {
+      return;
+    }
+    const activeScrollContainer: HTMLElement = scrollContainer;
+
+    function syncCompactHeader() {
+      setIsCompactHeader(activeScrollContainer.scrollTop > 64);
+    }
+
+    syncCompactHeader();
+    activeScrollContainer.addEventListener("scroll", syncCompactHeader, { passive: true });
+
+    return () => {
+      activeScrollContainer.removeEventListener("scroll", syncCompactHeader);
+    };
+  }, []);
+
+  function selectSubjectAndMaybeClose(subject: NavSubject) {
+    setIsUserSettingsOpen(false);
+    onSelectSubject(subject);
+  }
+
+  function selectChildAndMaybeClose(subject: NavSubject, child: NavChild) {
+    setIsUserSettingsOpen(false);
+    onSelectChild(subject, child);
+    if (isNarrow) {
+      setIsDrawerOpen(false);
+    }
+  }
+
+  function selectFilter(filter: "needs-review" | "active" | "all") {
+    setActiveFilter(filter);
+    setVisibleCount(3);
+    setActionNotice(`Showing ${filter.replace("-", " ")} items for ${isUserSettingsOpen ? "User settings" : activeChild.label}.`);
+  }
+
+  function startSectionEdit(sectionTitle: string, sectionBody: string) {
+    setEditingSection(sectionTitle);
+    setDraftSectionText(sectionBody);
+    setActionNotice(`Editing ${sectionTitle}.`);
+  }
+
+  function saveSectionEdit(sectionTitle: string) {
+    setEditingSection(null);
+    setActionNotice(`${sectionTitle} saved.`);
+  }
+
+  function cancelSectionEdit(sectionTitle: string) {
+    setEditingSection(null);
+    setActionNotice(`${sectionTitle} edit cancelled.`);
+  }
+
   return (
-    <div style={signinCardStyle}>
-      <div style={signinCopyStyle}>
-        <div style={smallLabelStyle}>Authentication</div>
-        <h2 style={cardTitleStyle}>Sign in with Google</h2>
-        <p style={cardTextStyle}>Use the farm&apos;s Google OAuth flow to access the staff shell.</p>
-      </div>
+    <section style={isNarrow ? narrowWorkspaceStyle : workspaceStyle} aria-label="Staff workspace">
+      {isNarrow ? (
+        <button
+          type="button"
+          onClick={() => setIsDrawerOpen(true)}
+          style={drawerTriggerStyle}
+          aria-expanded={isDrawerOpen}
+          aria-controls="staff-subject-drawer"
+        >
+          <Icon name="menu" />
+          <span>Subjects</span>
+        </button>
+      ) : null}
 
-      <button type="button" onClick={onGoogleSignIn} style={googleButtonStyle}>
-        <GoogleMark />
-        <span>Sign in with Google</span>
-      </button>
+      {isNarrow && isDrawerOpen ? (
+        <button
+          type="button"
+          aria-label="Close subject drawer"
+          onClick={() => setIsDrawerOpen(false)}
+          style={drawerOverlayStyle}
+        />
+      ) : null}
 
-      <p style={footnoteStyle}>
-        Emergency access is available through the backend with the temporary `farmadmin` account.
-      </p>
+      <aside
+        id="staff-subject-drawer"
+        style={{
+          ...sidebarStyle,
+          ...(isNarrow ? narrowSidebarStyle : null),
+          ...(isNarrow && isDrawerOpen ? openDrawerStyle : null)
+        }}
+        aria-label="Subject navigation"
+      >
+        <div style={brandBlockStyle}>
+          <div style={brandMarkStyle}>HF</div>
+          <div>
+            <div style={brandTitleStyle}>Horse Farm</div>
+            <div style={brandMetaStyle}>{user.role} workspace</div>
+          </div>
+        </div>
 
-      <details style={emergencyDisclosureStyle}>
-        <summary style={emergencySummaryStyle}>Emergency login</summary>
-        <form onSubmit={onEmergencySubmit} style={emergencyFormStyle}>
-          <label style={fieldLabelStyle}>
-            Username
-            <input
-              value={emergencyUsername}
-              onChange={(event) => onEmergencyUsernameChange(event.target.value)}
-              style={fieldInputStyle}
-              autoComplete="username"
-            />
-          </label>
-          <label style={fieldLabelStyle}>
-            Password
-            <input
-              value={emergencyPassword}
-              onChange={(event) => onEmergencyPasswordChange(event.target.value)}
-              style={fieldInputStyle}
-              type="password"
-              autoComplete="current-password"
-            />
-          </label>
-          <button type="submit" style={emergencyButtonStyle}>
-            Sign in as emergency admin
+        <nav style={navStyle}>
+          {visibleNavigation.map((subject) => {
+            const isOpen = openSubject === subject.id;
+            const isActive = selectedSubject === subject.id;
+
+            return (
+              <div key={subject.id} style={navGroupStyle}>
+                <button
+                  type="button"
+                  onClick={() => selectSubjectAndMaybeClose(subject)}
+                  aria-expanded={isOpen}
+                  style={{
+                    ...subjectButtonStyle,
+                    ...(isActive ? activeSubjectButtonStyle : null)
+                  }}
+                >
+                  <Icon name={subject.icon} />
+                  <span style={subjectLabelStyle}>{subject.label}</span>
+                  {subject.count ? <span style={countStyle}>{subject.count}</span> : null}
+                  <span style={{ ...chevronStyle, transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>
+                    {">"}
+                  </span>
+                </button>
+
+                {isOpen ? (
+                  <div style={childListStyle}>
+                    {subject.children.map((child) => (
+                      <button
+                        key={child.id}
+                        type="button"
+                        onClick={() => selectChildAndMaybeClose(subject, child)}
+                        aria-current={isActive && selectedChild === child.id ? "page" : undefined}
+                        style={{
+                          ...childButtonStyle,
+                          ...(isActive && selectedChild === child.id ? activeChildButtonStyle : null)
+                        }}
+                      >
+                        <span>{child.label}</span>
+                        {child.count ? <span style={childCountStyle}>{child.count}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </nav>
+
+        <div style={sessionPanelStyle}>
+          <div style={sessionLabelStyle}>{loading ? "Loading..." : "Signed in"}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsUserSettingsOpen(true);
+              setActionNotice("Opened user settings.");
+              if (isNarrow) {
+                setIsDrawerOpen(false);
+              }
+            }}
+            style={sessionNameButtonStyle}
+          >
+            {user.display_name}
           </button>
-        </form>
-      </details>
+          <div style={sessionEmailStyle}>{user.email}</div>
+          <button type="button" onClick={onLogout} style={logoutButtonStyle}>
+            Sign out
+          </button>
+        </div>
+      </aside>
 
-      {message ? <p style={messageStyle}>{message}</p> : null}
-    </div>
+      <section ref={contentRef} style={isNarrow ? narrowContentStyle : contentStyle} aria-live="polite">
+        <header
+          style={{
+            ...summaryStripStyle,
+            ...(isCompactHeader ? compactSummaryStripStyle : null),
+            ...(isNarrow ? narrowSummaryStripStyle : null)
+          }}
+        >
+          <div style={isCompactHeader ? compactAvatarStyle : avatarStyle}>{record.initials}</div>
+          <div style={summaryCopyStyle}>
+            {!isCompactHeader ? <div style={recordEyebrowStyle}>{record.eyebrow}</div> : null}
+            <h1 style={recordTitleStyle}>{record.name}</h1>
+            {!isCompactHeader ? <p style={recordMetaStyle}>{record.meta}</p> : null}
+          </div>
+          <span style={statusBadgeStyle}>{record.status}</span>
+          <div style={quickActionsStyle}>
+            <button
+              type="button"
+              onClick={() => setActionNotice(`${record.action} opened for ${record.name}.`)}
+              style={quickActionStyle}
+            >
+              {record.action}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActionNotice(`Note panel opened for ${record.name}.`)}
+              style={secondaryQuickActionStyle}
+            >
+              Note
+            </button>
+            <button
+              type="button"
+              onClick={() => setActionNotice(`Print preview prepared for ${record.name}.`)}
+              style={secondaryQuickActionStyle}
+            >
+              Print
+            </button>
+          </div>
+        </header>
+
+        <div style={contentInnerStyle}>
+          <div
+            style={{
+              ...toolbarStyle,
+              top: isNarrow ? "84px" : "84px",
+              ...(isNarrow ? narrowToolbarStyle : null)
+            }}
+          >
+            <input
+              aria-label={`Search ${activeSubject.label}`}
+              placeholder={`Search ${activeSubject.label.toLowerCase()}`}
+              value={searchText}
+              onChange={(event) => onSearchTextChange(event.target.value)}
+              style={searchStyle}
+            />
+            <div style={filterRowStyle}>
+              <button
+                type="button"
+                onClick={() => selectFilter("needs-review")}
+                style={activeFilter === "needs-review" ? filterChipActiveStyle : filterChipStyle}
+              >
+                Needs review 3
+              </button>
+              <button
+                type="button"
+                onClick={() => selectFilter("active")}
+                style={activeFilter === "active" ? filterChipActiveStyle : filterChipStyle}
+              >
+                Active 8
+              </button>
+              <button
+                type="button"
+                onClick={() => selectFilter("all")}
+                style={activeFilter === "all" ? filterChipActiveStyle : filterChipStyle}
+              >
+                All 14
+              </button>
+            </div>
+          </div>
+
+          <section style={listSectionStyle} aria-labelledby="selected-subject-title">
+            <div>
+              <div style={smallLabelStyle}>{activeSubject.label}</div>
+              <h2 id="selected-subject-title" style={sectionTitleStyle}>
+                {activeChild.label}
+              </h2>
+            </div>
+
+            <div style={recordListStyle}>
+              {listItems.map((item, index) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setSelectedListItem(item);
+                    setActionNotice(`${item} selected.`);
+                  }}
+                  style={selectedListItem === item || (!selectedListItem && index === 0) ? selectedRowStyle : rowStyle}
+                >
+                  <span style={rowAvatarStyle}>{item.slice(0, 2).toUpperCase()}</span>
+                  <span style={rowTextStyle}>
+                    <strong>{item}</strong>
+                    <span>{index === 0 ? record.status : "Ready"}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setVisibleCount((current) => current + 3);
+                setActionNotice(`Loaded more ${isUserSettingsOpen ? "settings" : activeChild.label.toLowerCase()} rows.`);
+              }}
+              style={loadMoreButtonStyle}
+            >
+              Load more
+            </button>
+          </section>
+
+          {actionNotice ? <p style={noticeStyle}>{actionNotice}</p> : null}
+
+          <section style={detailStackStyle} aria-label={`${record.name} details`} tabIndex={-1}>
+            {record.sections.map((section, index) => (
+              <article
+                key={section.title}
+                style={{
+                  ...detailCardStyle,
+                  ...(index === 1 ? importantDetailCardStyle : null)
+                }}
+              >
+                <header style={detailHeaderStyle}>
+                  <div>
+                    <h3 style={detailTitleStyle}>{section.title}</h3>
+                    <p style={detailSummaryStyle}>{section.summary}</p>
+                  </div>
+                  {editingSection === section.title ? (
+                    <div style={sectionActionGroupStyle}>
+                      <button
+                        type="button"
+                        onClick={() => saveSectionEdit(section.title)}
+                        style={sectionEditButtonStyle}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => cancelSectionEdit(section.title)}
+                        style={sectionEditButtonStyle}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startSectionEdit(section.title, section.body)}
+                      style={sectionEditButtonStyle}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </header>
+                {editingSection === section.title ? (
+                  <textarea
+                    value={draftSectionText}
+                    onChange={(event) => setDraftSectionText(event.target.value)}
+                    style={sectionTextareaStyle}
+                  />
+                ) : (
+                  <p style={detailBodyStyle}>{section.body}</p>
+                )}
+              </article>
+            ))}
+          </section>
+
+          {message ? <p style={messageStyle}>{message}</p> : null}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function Icon({ name }: { name: string }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: 1.8
+  } as const;
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" style={iconStyle}>
+      {name === "calendar" ? (
+        <>
+          <rect x="4" y="5" width="16" height="15" rx="2" {...common} />
+          <path d="M8 3v4M16 3v4M4 10h16" {...common} />
+        </>
+      ) : null}
+      {name === "students" ? (
+        <>
+          <path d="M16 19c0-2.2-1.8-4-4-4s-4 1.8-4 4" {...common} />
+          <circle cx="12" cy="9" r="3" {...common} />
+          <path d="M20 18c-.2-1.6-1.2-2.9-2.6-3.5M4 18c.2-1.6 1.2-2.9 2.6-3.5" {...common} />
+        </>
+      ) : null}
+      {name === "horse" ? (
+        <>
+          <path d="M7 18V9l3-4h6l3 5v8" {...common} />
+          <path d="M7 12h12M10 18v-4M16 18v-4" {...common} />
+        </>
+      ) : null}
+      {name === "clipboard" ? (
+        <>
+          <rect x="6" y="4" width="12" height="17" rx="2" {...common} />
+          <path d="M9 4.5h6M9 10h6M9 14h4" {...common} />
+        </>
+      ) : null}
+      {name === "review" ? (
+        <>
+          <path d="M5 5h14v10H8l-3 3V5Z" {...common} />
+          <path d="M9 9h6M9 12h4" {...common} />
+        </>
+      ) : null}
+      {name === "settings" ? (
+        <>
+          <circle cx="12" cy="12" r="3" {...common} />
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" {...common} />
+        </>
+      ) : null}
+      {name === "menu" ? (
+        <>
+          <path d="M4 7h16M4 12h16M4 17h16" {...common} />
+        </>
+      ) : null}
+    </svg>
   );
 }
 
@@ -1234,186 +1186,60 @@ function GoogleMark() {
         fill="#4CAF50"
         d="M24 44c5.157 0 9.874-1.977 13.446-5.196l-6.206-5.238C29.285 35.091 26.781 36 24 36c-5.177 0-9.618-3.317-11.296-7.946l-6.52 5.018C9.497 39.556 16.227 44 24 44z"
       />
-      <path
-        fill="#1976D2"
-        d="M43.611 20.083H42V20H24v8h11.303a12.036 12.036 0 0 1-4.063 5.566l.003-.003 6.206 5.238C36.99 40.055 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
-      />
+      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.036 12.036 0 0 1-4.063 5.566l.003-.003 6.206 5.238C36.99 40.055 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
     </svg>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text"
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <label style={fieldLabelStyle}>
-      {label}
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        style={fieldInputStyle}
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange
-}: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label style={fieldLabelStyle}>
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        style={fieldInputStyle}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt style={detailLabelStyle}>{label}</dt>
-      <dd style={detailValueStyle}>{value}</dd>
-    </div>
-  );
-}
-
-function ListBlock({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div style={listBlockStyle}>
-      <div style={listLabelStyle}>{title}</div>
-      <ul style={listStyle}>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function importanceScore(student: Student) {
-  return (
-    (student.active ? 20 : 0) +
-    (student.is_minor ? 8 : 0) +
-    student.opinions.filter((opinion) => opinion.enters_review).length * 6 +
-    student.guardians.length +
-    student.emergency_contacts.length
-  );
-}
-
-function startOfMonday(date: Date) {
-  const monday = new Date(date);
-  monday.setHours(0, 0, 0, 0);
-  const offset = (monday.getDay() + 6) % 7;
-  monday.setDate(monday.getDate() - offset);
-  return monday;
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function formatWeekday(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short"
-  }).format(date);
-}
-
-function formatMonthDay(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric"
-  }).format(date);
-}
-
 const pageStyle: CSSProperties = {
   minHeight: "100vh",
-  padding: "28px 20px 36px"
+  background: "#f4f2eb",
+  color: "#20241f"
 };
 
-const pageGlowStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background:
-    "radial-gradient(circle at 12% 0%, rgba(255, 255, 255, 0.48), transparent 26%), radial-gradient(circle at 86% 2%, rgba(158, 132, 95, 0.12), transparent 20%)",
-  pointerEvents: "none",
-  zIndex: 0
-};
-
-const shellStyle: CSSProperties = {
-  position: "relative",
-  zIndex: 1,
-  width: "min(1360px, 100%)",
+const signinShellStyle: CSSProperties = {
+  width: "min(1040px, 100%)",
   margin: "0 auto",
+  padding: "32px",
   display: "grid",
-  gap: "22px"
+  gap: "28px"
 };
 
 const heroStyle: CSSProperties = {
   display: "grid",
-  gap: "14px",
+  gap: "16px",
   maxWidth: "820px"
 };
 
 const eyebrowStyle: CSSProperties = {
-  color: "#53604e",
+  color: "#607062",
   fontWeight: 700,
-  letterSpacing: "0.12em",
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
   fontSize: "13px"
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "clamp(44px, 7vw, 76px)",
+  fontSize: "clamp(44px, 7vw, 74px)",
   lineHeight: 0.92,
-  letterSpacing: "-0.06em"
+  letterSpacing: "0"
 };
 
 const ledeStyle: CSSProperties = {
   margin: 0,
   maxWidth: "760px",
   fontSize: "18px",
-  lineHeight: 1.6,
-  color: "#314132"
+  lineHeight: 1.6
 };
 
 const signinCardStyle: CSSProperties = {
   display: "grid",
-  gap: "18px",
+  gap: "20px",
   padding: "28px",
-  borderRadius: "28px",
-  background: "rgba(255, 255, 255, 0.8)",
-  border: "1px solid rgba(72, 84, 70, 0.12)",
-  boxShadow: "0 24px 80px rgba(55, 64, 50, 0.12)",
+  borderRadius: "8px",
+  background: "#fff",
+  border: "1px solid #ddd9cc",
   maxWidth: "560px"
 };
 
@@ -1424,10 +1250,10 @@ const signinCopyStyle: CSSProperties = {
 
 const smallLabelStyle: CSSProperties = {
   margin: 0,
-  color: "#556353",
-  fontSize: "13px",
+  color: "#607062",
+  fontSize: "12px",
   fontWeight: 700,
-  letterSpacing: "0.06em",
+  letterSpacing: "0.08em",
   textTransform: "uppercase"
 };
 
@@ -1440,7 +1266,7 @@ const cardTitleStyle: CSSProperties = {
 const cardTextStyle: CSSProperties = {
   margin: 0,
   lineHeight: 1.6,
-  color: "#364336"
+  color: "#41493f"
 };
 
 const googleButtonStyle: CSSProperties = {
@@ -1449,457 +1275,600 @@ const googleButtonStyle: CSSProperties = {
   justifyContent: "center",
   gap: "12px",
   width: "fit-content",
-  padding: "14px 20px",
-  borderRadius: "999px",
-  border: "1px solid rgba(60, 64, 67, 0.16)",
+  padding: "12px 16px",
+  borderRadius: "8px",
+  border: "1px solid #d7d2c4",
   background: "#fff",
   color: "#1f1f1f",
   cursor: "pointer",
   font: "inherit",
-  fontWeight: 700,
-  boxShadow: "0 10px 30px rgba(31, 45, 31, 0.12)"
+  fontWeight: 700
 };
 
 const footnoteStyle: CSSProperties = {
   margin: 0,
-  color: "#556353",
+  color: "#607062",
   fontSize: "14px",
   lineHeight: 1.5
 };
 
-const workspaceLayoutStyle: CSSProperties = {
+const workspaceStyle: CSSProperties = {
+  minHeight: "100vh",
   display: "grid",
-  gridTemplateColumns: "minmax(0, 320px) minmax(0, 1fr)",
-  gap: "20px",
-  alignItems: "start"
+  gridTemplateColumns: "280px minmax(0, 1fr)"
+};
+
+const narrowWorkspaceStyle: CSSProperties = {
+  minHeight: "100vh",
+  display: "block"
+};
+
+const drawerTriggerStyle: CSSProperties = {
+  position: "fixed",
+  top: "12px",
+  left: "12px",
+  zIndex: 8,
+  minHeight: "42px",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  padding: "9px 11px",
+  borderRadius: "8px",
+  border: "1px solid #d7d1c2",
+  background: "#fff",
+  color: "#263425",
+  cursor: "pointer",
+  fontWeight: 800,
+  boxShadow: "0 8px 24px rgba(38, 52, 37, 0.12)"
+};
+
+const drawerOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 9,
+  border: 0,
+  background: "rgba(25, 31, 24, 0.36)",
+  cursor: "pointer"
 };
 
 const sidebarStyle: CSSProperties = {
-  display: "grid",
-  gap: "16px",
-  padding: "20px",
-  borderRadius: "26px",
-  background: "rgba(255, 255, 255, 0.82)",
-  border: "1px solid rgba(72, 84, 70, 0.12)",
-  boxShadow: "0 24px 80px rgba(55, 64, 50, 0.12)",
   position: "sticky",
-  top: "20px"
+  top: 0,
+  height: "100vh",
+  padding: "18px",
+  display: "grid",
+  gridTemplateRows: "auto 1fr auto",
+  gap: "18px",
+  background: "#fcfbf7",
+  borderRight: "1px solid #ddd8c9"
 };
 
-const sidebarHeaderStyle: CSSProperties = {
+const narrowSidebarStyle: CSSProperties = {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  zIndex: 10,
+  width: "min(300px, 88vw)",
+  transform: "translateX(-102%)",
+  transition: "transform 160ms ease",
+  boxShadow: "12px 0 32px rgba(38, 52, 37, 0.18)"
+};
+
+const openDrawerStyle: CSSProperties = {
+  transform: "translateX(0)"
+};
+
+const brandBlockStyle: CSSProperties = {
   display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "12px"
+  alignItems: "center",
+  gap: "12px",
+  paddingBottom: "12px",
+  borderBottom: "1px solid #e4dfd2"
 };
 
-const sidebarTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "24px",
-  lineHeight: 1.1
-};
-
-const sidebarCloseButtonStyle: CSSProperties = {
-  border: "none",
-  background: "#edf2eb",
-  color: "#243024",
-  borderRadius: "999px",
-  padding: "10px 14px",
-  cursor: "pointer",
-  fontWeight: 700
-};
-
-const sidebarNavStyle: CSSProperties = {
+const brandMarkStyle: CSSProperties = {
+  width: "38px",
+  height: "38px",
   display: "grid",
-  gap: "10px"
-};
-
-function sidebarNavButtonStyle(active: boolean): CSSProperties {
-  return {
-    width: "100%",
-    display: "grid",
-    gap: "4px",
-    justifyItems: "start",
-    textAlign: "left",
-    padding: "14px",
-    borderRadius: "18px",
-    border: active ? "1px solid rgba(36, 48, 36, 0.28)" : "1px solid rgba(72, 84, 70, 0.12)",
-    background: active ? "#f0f5ea" : "rgba(248, 249, 244, 0.9)",
-    color: "#243024",
-    cursor: "pointer"
-  };
-}
-
-const sidebarNavButtonLabelStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: "15px"
-};
-
-const sidebarNavButtonCopyStyle: CSSProperties = {
-  fontSize: "13px",
-  color: "#5b6959",
-  lineHeight: 1.4
-};
-
-const sidebarCountPillStyle: CSSProperties = {
-  marginTop: "4px",
-  padding: "5px 10px",
-  borderRadius: "999px",
-  background: "#dfe8d7",
-  color: "#233023",
-  fontWeight: 700,
-  fontSize: "12px"
-};
-
-const sidebarSummaryCardStyle: CSSProperties = {
-  display: "grid",
-  gap: "10px",
-  padding: "16px",
-  borderRadius: "18px",
-  background: "rgba(241, 244, 237, 0.9)",
-  border: "1px solid rgba(72, 84, 70, 0.12)"
-};
-
-const sidebarSummaryTextStyle: CSSProperties = {
-  margin: 0,
-  color: "#304030",
-  lineHeight: 1.5
-};
-
-const sidebarListStyle: CSSProperties = {
-  margin: 0,
-  paddingLeft: "18px",
-  display: "grid",
-  gap: "8px",
-  color: "#384738",
-  lineHeight: 1.5
-};
-
-const workspaceMainStyle: CSSProperties = {
-  display: "grid",
-  gap: "18px"
-};
-
-const surfaceStyle: CSSProperties = {
-  display: "grid",
-  gap: "16px",
-  padding: "22px",
-  borderRadius: "26px",
-  background: "rgba(255, 255, 255, 0.78)",
-  border: "1px solid rgba(72, 84, 70, 0.12)",
-  boxShadow: "0 24px 80px rgba(55, 64, 50, 0.12)"
-};
-
-const surfaceHeaderStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "12px"
-};
-
-const panelTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "22px",
-  lineHeight: 1.15
-};
-
-const pillStyle: CSSProperties = {
-  padding: "6px 10px",
-  borderRadius: "999px",
-  background: "#edf2eb",
-  color: "#253125",
-  fontSize: "12px",
-  fontWeight: 700,
-  whiteSpace: "nowrap"
-};
-
-const listToolbarStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "14px"
-};
-
-const fieldLabelStyle: CSSProperties = {
-  display: "grid",
-  gap: "6px",
-  color: "#364136",
-  fontWeight: 600,
-  fontSize: "14px"
-};
-
-const fieldInputStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid rgba(72, 84, 70, 0.18)",
-  font: "inherit",
-  background: "#fff"
-};
-
-const studentListStyle: CSSProperties = {
-  display: "grid",
-  gap: "12px"
-};
-
-const studentRowButtonStyle = (selected: boolean): CSSProperties => ({
-  display: "grid",
-  gap: "10px",
-  padding: "16px",
-  borderRadius: "18px",
-  border: selected ? "1px solid rgba(33, 48, 33, 0.3)" : "1px solid rgba(72, 84, 70, 0.1)",
-  background: selected ? "#f0f5ea" : "rgba(248, 249, 244, 0.92)",
-  cursor: "pointer",
-  textAlign: "left"
-});
-
-const studentRowHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "10px",
-  alignItems: "flex-start"
-};
-
-const studentNameStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "18px",
+  placeItems: "center",
+  borderRadius: "8px",
+  background: "#273628",
+  color: "#fff",
   fontWeight: 800
 };
 
-const studentMetaStyle: CSSProperties = {
-  margin: "4px 0 0",
-  color: "#5b6959",
-  fontSize: "14px"
+const brandTitleStyle: CSSProperties = {
+  fontWeight: 800
 };
 
-const studentRowCopyStyle: CSSProperties = {
-  color: "#334133",
-  lineHeight: 1.4
+const brandMetaStyle: CSSProperties = {
+  color: "#697264",
+  fontSize: "13px",
+  textTransform: "capitalize"
 };
 
-function studentBadgeStyle(active: boolean): CSSProperties {
-  return {
-    ...pillStyle,
-    background: active ? "#eaf4dd" : "#f4ecdf",
-    color: active ? "#324732" : "#5a5244"
-  };
-}
+const navStyle: CSSProperties = {
+  display: "grid",
+  alignContent: "start",
+  gap: "8px",
+  overflowY: "auto"
+};
+
+const navGroupStyle: CSSProperties = {
+  display: "grid",
+  gap: "4px"
+};
+
+const subjectButtonStyle: CSSProperties = {
+  width: "100%",
+  minHeight: "44px",
+  display: "grid",
+  gridTemplateColumns: "22px 1fr auto 12px",
+  alignItems: "center",
+  gap: "10px",
+  padding: "9px 10px",
+  borderRadius: "8px",
+  border: "1px solid transparent",
+  background: "transparent",
+  color: "#30372f",
+  cursor: "pointer",
+  textAlign: "left"
+};
+
+const activeSubjectButtonStyle: CSSProperties = {
+  background: "#eef3ea",
+  borderColor: "#d3dfcb",
+  color: "#1f321f"
+};
+
+const subjectLabelStyle: CSSProperties = {
+  fontWeight: 700
+};
+
+const countStyle: CSSProperties = {
+  minWidth: "24px",
+  height: "22px",
+  padding: "0 7px",
+  borderRadius: "999px",
+  display: "inline-grid",
+  placeItems: "center",
+  background: "#fff",
+  border: "1px solid #d4dacd",
+  color: "#334331",
+  fontSize: "12px",
+  fontWeight: 800
+};
+
+const chevronStyle: CSSProperties = {
+  color: "#687366",
+  transition: "transform 140ms ease"
+};
+
+const childListStyle: CSSProperties = {
+  display: "grid",
+  gap: "3px",
+  marginLeft: "12px",
+  padding: "4px 0 4px 20px",
+  borderLeft: "1px solid #d9d5c8"
+};
+
+const childButtonStyle: CSSProperties = {
+  minHeight: "36px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "8px",
+  padding: "8px 10px",
+  borderRadius: "7px",
+  border: "1px solid transparent",
+  background: "transparent",
+  color: "#4d554b",
+  cursor: "pointer",
+  textAlign: "left"
+};
+
+const activeChildButtonStyle: CSSProperties = {
+  background: "#263425",
+  borderColor: "#263425",
+  color: "#fff",
+  fontWeight: 800
+};
+
+const childCountStyle: CSSProperties = {
+  color: "#66705f",
+  fontSize: "12px",
+  fontWeight: 800
+};
+
+const iconStyle: CSSProperties = {
+  display: "block"
+};
+
+const sessionPanelStyle: CSSProperties = {
+  display: "grid",
+  gap: "7px",
+  padding: "12px",
+  borderRadius: "8px",
+  background: "#f1eee6",
+  border: "1px solid #ded8c8"
+};
+
+const sessionLabelStyle: CSSProperties = {
+  color: "#65705f",
+  fontSize: "12px",
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em"
+};
+
+const sessionNameStyle: CSSProperties = {
+  fontWeight: 800
+};
+
+const sessionNameButtonStyle: CSSProperties = {
+  width: "fit-content",
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "#20241f",
+  cursor: "pointer",
+  font: "inherit",
+  fontWeight: 800,
+  textAlign: "left"
+};
+
+const sessionEmailStyle: CSSProperties = {
+  color: "#5f685b",
+  fontSize: "13px",
+  overflowWrap: "anywhere"
+};
+
+const logoutButtonStyle: CSSProperties = {
+  width: "fit-content",
+  padding: "9px 11px",
+  borderRadius: "8px",
+  border: "1px solid #263425",
+  background: "#263425",
+  color: "#fff",
+  cursor: "pointer",
+  font: "inherit",
+  fontWeight: 800
+};
+
+const contentStyle: CSSProperties = {
+  minHeight: "100vh",
+  maxHeight: "100vh",
+  overflowY: "auto"
+};
+
+const narrowContentStyle: CSSProperties = {
+  minHeight: "100vh",
+  maxHeight: "100vh",
+  overflowY: "auto"
+};
 
 const summaryStripStyle: CSSProperties = {
+  position: "sticky",
+  top: 0,
+  zIndex: 5,
+  minHeight: "84px",
   display: "grid",
-  gap: "12px",
-  padding: "18px",
-  borderRadius: "20px",
-  background: "linear-gradient(180deg, rgba(240, 245, 234, 0.92), rgba(249, 250, 245, 0.96))",
-  border: "1px solid rgba(72, 84, 70, 0.1)"
+  gridTemplateColumns: "54px minmax(220px, 1fr) auto auto",
+  alignItems: "center",
+  gap: "14px",
+  padding: "16px 24px",
+  background: "rgba(252, 251, 247, 0.96)",
+  borderBottom: "1px solid #ddd8c9"
 };
 
-const summaryNameStyle: CSSProperties = {
+const compactSummaryStripStyle: CSSProperties = {
+  gridTemplateColumns: "42px minmax(160px, 1fr) auto auto",
+  gap: "10px"
+};
+
+const narrowSummaryStripStyle: CSSProperties = {
+  gridTemplateColumns: "42px minmax(0, 1fr) auto",
+  padding: "12px 12px 12px 112px"
+};
+
+const avatarStyle: CSSProperties = {
+  width: "50px",
+  height: "50px",
+  borderRadius: "8px",
+  display: "grid",
+  placeItems: "center",
+  background: "#304131",
+  color: "#fff",
+  fontWeight: 800
+};
+
+const compactAvatarStyle: CSSProperties = {
+  width: "38px",
+  height: "38px",
+  borderRadius: "8px",
+  display: "grid",
+  placeItems: "center",
+  background: "#304131",
+  color: "#fff",
+  fontSize: "13px",
+  fontWeight: 800
+};
+
+const summaryCopyStyle: CSSProperties = {
+  display: "grid",
+  gap: "3px"
+};
+
+const recordEyebrowStyle: CSSProperties = {
+  color: "#607062",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase"
+};
+
+const recordTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "24px",
-  fontWeight: 800,
   lineHeight: 1.1
 };
 
-const summaryMetaStyle: CSSProperties = {
-  marginTop: "6px",
-  color: "#556353",
-  lineHeight: 1.5
+const recordMetaStyle: CSSProperties = {
+  margin: 0,
+  color: "#5c6658",
+  fontSize: "14px"
 };
 
-const summaryPillRowStyle: CSSProperties = {
+const statusBadgeStyle: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: "999px",
+  background: "#fff4cf",
+  color: "#614900",
+  border: "1px solid #e7d58d",
+  fontSize: "13px",
+  fontWeight: 800,
+  whiteSpace: "nowrap"
+};
+
+const quickActionsStyle: CSSProperties = {
   display: "flex",
+  justifyContent: "flex-end",
+  gap: "8px",
+  flexWrap: "wrap"
+};
+
+const quickActionStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: "8px",
+  border: "1px solid #263425",
+  background: "#263425",
+  color: "#fff",
+  cursor: "pointer",
+  fontWeight: 800
+};
+
+const secondaryQuickActionStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: "8px",
+  border: "1px solid #d7d1c2",
+  background: "#fff",
+  color: "#263425",
+  cursor: "pointer",
+  fontWeight: 800
+};
+
+const contentInnerStyle: CSSProperties = {
+  width: "min(1040px, 100%)",
+  display: "grid",
+  gap: "18px",
+  padding: "22px 24px 40px"
+};
+
+const toolbarStyle: CSSProperties = {
+  position: "sticky",
+  top: "84px",
+  zIndex: 4,
+  display: "grid",
+  gridTemplateColumns: "minmax(220px, 1fr) auto",
+  alignItems: "center",
+  gap: "12px",
+  padding: "10px 0",
+  background: "#f4f2eb"
+};
+
+const narrowToolbarStyle: CSSProperties = {
+  gridTemplateColumns: "1fr",
+  alignItems: "stretch"
+};
+
+const searchStyle: CSSProperties = {
+  width: "100%",
+  minHeight: "42px",
+  padding: "10px 12px",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
+  background: "#fff"
+};
+
+const filterRowStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
   flexWrap: "wrap",
+  justifyContent: "flex-end"
+};
+
+const filterChipStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: "999px",
+  border: "1px solid #d8d2c3",
+  background: "#fff",
+  color: "#394238",
+  cursor: "pointer",
+  fontSize: "13px",
+  fontWeight: 700
+};
+
+const filterChipActiveStyle: CSSProperties = {
+  ...filterChipStyle,
+  background: "#e7eee3",
+  borderColor: "#c8d5c2"
+};
+
+const listSectionStyle: CSSProperties = {
+  display: "grid",
+  gap: "12px",
+  padding: "18px",
+  borderRadius: "8px",
+  background: "#fff",
+  border: "1px solid #ded8c8"
+};
+
+const sectionTitleStyle: CSSProperties = {
+  margin: "4px 0 0",
+  fontSize: "22px"
+};
+
+const recordListStyle: CSSProperties = {
+  display: "grid",
   gap: "8px"
 };
 
-const summaryPillStyle: CSSProperties = {
-  padding: "6px 10px",
-  borderRadius: "999px",
-  background: "#e7efe0",
-  color: "#253125",
-  fontWeight: 700,
-  fontSize: "12px"
+const loadMoreButtonStyle: CSSProperties = {
+  width: "fit-content",
+  justifySelf: "center",
+  padding: "10px 12px",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
+  background: "#fff",
+  color: "#263425",
+  cursor: "pointer",
+  fontWeight: 800
 };
 
-const detailGridStyle: CSSProperties = {
+const rowStyle: CSSProperties = {
+  minHeight: "58px",
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "14px"
+  gridTemplateColumns: "38px 1fr",
+  alignItems: "center",
+  gap: "10px",
+  padding: "8px 10px",
+  borderRadius: "8px",
+  border: "1px solid #e2ddd0",
+  background: "#fff",
+  color: "#252b24",
+  cursor: "pointer",
+  textAlign: "left"
+};
+
+const selectedRowStyle: CSSProperties = {
+  ...rowStyle,
+  borderColor: "#aebf9f",
+  background: "#f1f6ee"
+};
+
+const rowAvatarStyle: CSSProperties = {
+  width: "36px",
+  height: "36px",
+  borderRadius: "8px",
+  display: "grid",
+  placeItems: "center",
+  background: "#eee9dc",
+  color: "#394238",
+  fontSize: "12px",
+  fontWeight: 800
+};
+
+const rowTextStyle: CSSProperties = {
+  display: "grid",
+  gap: "3px"
+};
+
+const detailStackStyle: CSSProperties = {
+  display: "grid",
+  gap: "12px"
+};
+
+const noticeStyle: CSSProperties = {
+  margin: 0,
+  padding: "10px 12px",
+  borderRadius: "8px",
+  background: "#eef3ea",
+  border: "1px solid #d3dfcb",
+  color: "#263425",
+  fontWeight: 700
 };
 
 const detailCardStyle: CSSProperties = {
   display: "grid",
   gap: "12px",
-  padding: "16px",
-  borderRadius: "18px",
-  background: "rgba(248, 249, 244, 0.92)",
-  border: "1px solid rgba(72, 84, 70, 0.1)"
+  padding: "18px",
+  borderRadius: "8px",
+  background: "#fff",
+  border: "1px solid #ded8c8"
 };
 
-const detailCardLabelStyle: CSSProperties = {
-  color: "#566355",
-  fontSize: "12px",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontWeight: 800
+const importantDetailCardStyle: CSSProperties = {
+  background: "#fbfbf1"
 };
 
-const detailDefinitionStyle: CSSProperties = {
-  display: "grid",
-  gap: "12px",
-  margin: 0
-};
-
-const detailLabelStyle: CSSProperties = {
-  margin: 0,
-  color: "#5e6b5d",
-  fontSize: "12px",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  fontWeight: 700
-};
-
-const detailValueStyle: CSSProperties = {
-  margin: "4px 0 0",
-  color: "#223022",
-  fontSize: "14px",
-  lineHeight: 1.4
-};
-
-const stackListStyle: CSSProperties = {
-  display: "grid",
-  gap: "10px"
-};
-
-const listBlockStyle: CSSProperties = {
-  display: "grid",
-  gap: "8px"
-};
-
-const listLabelStyle: CSSProperties = {
-  color: "#5e6b5d",
-  fontSize: "12px",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  fontWeight: 700
-};
-
-const listStyle: CSSProperties = {
-  margin: 0,
-  paddingLeft: "18px",
-  display: "grid",
-  gap: "8px",
-  lineHeight: 1.5
-};
-
-const noteTextStyle: CSSProperties = {
-  margin: 0,
-  color: "#364336",
-  lineHeight: 1.5
-};
-
-const adminSectionGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "14px"
-};
-
-const subsectionTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "20px",
-  lineHeight: 1.15
-};
-
-const formGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "14px"
-};
-
-const twoColumnGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "14px",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
-};
-
-const checkboxLabelStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "10px",
-  color: "#364136",
-  fontWeight: 600,
-  fontSize: "14px",
-  paddingTop: "24px"
-};
-
-const subsectionStyle: CSSProperties = {
-  display: "grid",
-  gap: "12px",
-  padding: "14px",
-  borderRadius: "18px",
-  background: "rgba(238, 242, 235, 0.75)"
-};
-
-const subsectionHeadingStyle: CSSProperties = {
-  fontSize: "14px",
-  fontWeight: 700,
-  color: "#3b4639",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em"
-};
-
-const primaryButtonStyle: CSSProperties = {
-  width: "fit-content",
-  padding: "11px 16px",
-  borderRadius: "999px",
-  border: "none",
-  background: "#1f2d1f",
-  color: "#fff",
-  cursor: "pointer",
-  font: "inherit",
-  fontWeight: 700
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  width: "fit-content",
-  padding: "11px 16px",
-  borderRadius: "999px",
-  border: "1px solid rgba(72, 84, 70, 0.18)",
-  background: "#edf2eb",
-  color: "#213021",
-  cursor: "pointer",
-  font: "inherit",
-  fontWeight: 700
-};
-
-const levelListStyle: CSSProperties = {
-  display: "grid",
-  gap: "14px"
-};
-
-const levelCardStyle: CSSProperties = {
-  padding: "16px",
-  borderRadius: "18px",
-  background: "rgba(248, 249, 244, 0.9)",
-  border: "1px solid rgba(72, 84, 70, 0.1)",
-  display: "grid",
-  gap: "14px"
-};
-
-const sectionHeadingStyle: CSSProperties = {
+const detailHeaderStyle: CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   justifyContent: "space-between",
-  gap: "12px"
+  gap: "16px"
 };
 
-const logoutButtonStyle: CSSProperties = {
-  width: "fit-content",
-  padding: "11px 16px",
-  borderRadius: "999px",
-  border: "none",
-  background: "#1f2d1f",
-  color: "#fff",
-  cursor: "pointer",
-  font: "inherit",
+const detailTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "18px"
+};
+
+const detailSummaryStyle: CSSProperties = {
+  margin: "4px 0 0",
+  color: "#61705c",
+  fontSize: "14px",
   fontWeight: 700
+};
+
+const sectionEditButtonStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
+  background: "#fff",
+  color: "#263425",
+  cursor: "pointer",
+  fontWeight: 800
+};
+
+const sectionActionGroupStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  justifyContent: "flex-end"
+};
+
+const sectionTextareaStyle: CSSProperties = {
+  width: "100%",
+  minHeight: "96px",
+  padding: "10px 12px",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
+  background: "#fff",
+  color: "#263425",
+  resize: "vertical",
+  lineHeight: 1.5
+};
+
+const detailBodyStyle: CSSProperties = {
+  margin: 0,
+  color: "#3f473c",
+  lineHeight: 1.55
+};
+
+const messageStyle: CSSProperties = {
+  margin: 0,
+  color: "#3f523d",
+  fontWeight: 600
 };
 
 const emergencyDisclosureStyle: CSSProperties = {
@@ -1921,168 +1890,30 @@ const emergencyFormStyle: CSSProperties = {
   maxWidth: "360px"
 };
 
+const fieldLabelStyle: CSSProperties = {
+  display: "grid",
+  gap: "6px",
+  color: "#364136",
+  fontWeight: 600,
+  fontSize: "14px"
+};
+
+const fieldInputStyle: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
+  font: "inherit",
+  background: "#fff"
+};
+
 const emergencyButtonStyle: CSSProperties = {
   width: "fit-content",
   padding: "11px 16px",
-  borderRadius: "999px",
-  border: "1px solid rgba(72, 84, 70, 0.18)",
+  borderRadius: "8px",
+  border: "1px solid #d8d2c3",
   background: "#edf2eb",
   color: "#213021",
   cursor: "pointer",
   font: "inherit",
   fontWeight: 700
 };
-
-const messageStyle: CSSProperties = {
-  margin: 0,
-  color: "#3f523d",
-  fontWeight: 600
-};
-
-const emptyStateStyle: CSSProperties = {
-  margin: 0,
-  color: "#586558",
-  lineHeight: 1.5
-};
-
-const toggleRowStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "8px"
-};
-
-function scheduleToggleButtonStyle(active: boolean): CSSProperties {
-  return {
-    padding: "9px 14px",
-    borderRadius: "999px",
-    border: active ? "1px solid rgba(35, 49, 35, 0.3)" : "1px solid rgba(72, 84, 70, 0.16)",
-    background: active ? "#233123" : "#edf2eb",
-    color: active ? "#fff" : "#223022",
-    cursor: "pointer",
-    fontWeight: 700
-  };
-}
-
-const warningStripStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: "16px",
-  background: "#f8efe1",
-  border: "1px solid rgba(120, 92, 54, 0.16)",
-  color: "#6b4d22",
-  fontWeight: 600
-};
-
-const calendarGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "12px",
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))"
-};
-
-const calendarSlotStyle: CSSProperties = {
-  display: "grid",
-  gap: "8px",
-  padding: "16px",
-  borderRadius: "18px",
-  background: "rgba(248, 249, 244, 0.9)",
-  border: "1px solid rgba(72, 84, 70, 0.1)"
-};
-
-const calendarTimeStyle: CSSProperties = {
-  color: "#5e6b5d",
-  fontSize: "12px",
-  fontWeight: 800,
-  letterSpacing: "0.08em"
-};
-
-const calendarEntryTitleStyle: CSSProperties = {
-  fontSize: "16px",
-  fontWeight: 800
-};
-
-const calendarEntryCopyStyle: CSSProperties = {
-  color: "#364336",
-  lineHeight: 1.5
-};
-
-const listViewStyle: CSSProperties = {
-  display: "grid",
-  gap: "10px"
-};
-
-const listRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "72px minmax(0, 1fr)",
-  gap: "14px",
-  alignItems: "start",
-  padding: "14px",
-  borderRadius: "18px",
-  background: "rgba(248, 249, 244, 0.9)",
-  border: "1px solid rgba(72, 84, 70, 0.1)"
-};
-
-const listRowTimeStyle: CSSProperties = {
-  color: "#5e6b5d",
-  fontSize: "12px",
-  fontWeight: 800,
-  letterSpacing: "0.08em"
-};
-
-const weekGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "12px",
-  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))"
-};
-
-const weekDayCardStyle: CSSProperties = {
-  display: "grid",
-  gap: "8px",
-  padding: "14px",
-  borderRadius: "18px",
-  background: "rgba(248, 249, 244, 0.9)",
-  border: "1px solid rgba(72, 84, 70, 0.1)"
-};
-
-const weekDayLabelStyle: CSSProperties = {
-  color: "#5e6b5d",
-  fontSize: "12px",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontWeight: 800
-};
-
-const weekDayDateStyle: CSSProperties = {
-  fontSize: "16px",
-  fontWeight: 800
-};
-
-const weekDayPillStyle: CSSProperties = {
-  ...pillStyle,
-  width: "fit-content"
-};
-
-const mobileMenuButtonStyle: CSSProperties = {
-  display: "none",
-  position: "sticky",
-  top: "14px",
-  zIndex: 20,
-  width: "fit-content",
-  padding: "10px 14px",
-  borderRadius: "999px",
-  border: "1px solid rgba(72, 84, 70, 0.18)",
-  background: "rgba(255, 255, 255, 0.9)",
-  color: "#223022",
-  fontWeight: 700,
-  cursor: "pointer"
-};
-
-const drawerBackdropStyle: CSSProperties = {
-  display: "none",
-  position: "fixed",
-  inset: 0,
-  background: "rgba(22, 27, 21, 0.35)",
-  opacity: 0,
-  pointerEvents: "none",
-  transition: "opacity 180ms ease",
-  zIndex: 18
-};
-

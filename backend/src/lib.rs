@@ -1,4 +1,5 @@
 mod auth;
+mod students;
 
 pub use auth::{AppConfig, BuildError, ConfigError, StaffRole, StaffUser};
 
